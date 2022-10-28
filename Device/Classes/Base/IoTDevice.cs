@@ -116,6 +116,7 @@ namespace SmartApp.CLI.Device.Classes.Base
                     //["owner"] = deviceInfo.Owner,
                     //["interval"] = deviceInfo.Interval
                 };
+
                 var twin = await _deviceClient.GetTwinAsync();
                 await _deviceClient.UpdateReportedPropertiesAsync(twinCollection);
                 await _deviceClient.SetMethodHandlerAsync("EditInterval", EditInterval, _deviceClient);
@@ -159,7 +160,7 @@ namespace SmartApp.CLI.Device.Classes.Base
         protected virtual async Task<string> HeartbeatInfo()
         {
             //var twin = await _deviceClient.GetTwinAsync();
-            //var outString =
+            var outString = "";
             //    $"Heartbeat sent:\t[{DateTime.Now.ToString(CultureInfo.InvariantCulture)}][Type: {twin.Properties.Reported["deviceType"]}][Room: {twin.Properties.Reported["location"]}][Name: {twin.Properties.Reported["deviceName"]}]";
             return outString;
         }

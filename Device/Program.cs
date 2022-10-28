@@ -11,7 +11,7 @@ namespace Device
 {
     public static class Program
     {
-        public static async Task Main(string[] args)
+        public static Task Main(string[] args)
         {
             var allDevices = new List<IoTDevice>();
             //allDevices.AddRange(IotDeviceService.GenerateDevices("Kitchen"));
