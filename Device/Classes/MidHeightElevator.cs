@@ -16,7 +16,7 @@ namespace Device.Classes
 
         protected override Task UpdateReportedProperties()
         {
-            throw new NotImplementedException();
+            return Task.CompletedTask;
         }
     }
 }

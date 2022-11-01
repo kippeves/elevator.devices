@@ -21,13 +21,13 @@ namespace SmartApp.CLI.Device.Models
         public Guid CompanyId { get; set; }
         public Guid BuildingId { get; set; }
         public Guid ElevatorTypeId { get; set; }
+        public bool IsFunctioning { get; set; }
         public Dictionary<string, dynamic?> Device { get; set; } = new()
         {
             ["Name"] = null,
             ["CompanyName"] = null,
             ["BuildingName"] = null,
             ["ElevatorType"] = null,
-            ["IsFunctioning"] = false,
             ["Interval"] = (int)TimeSpan.FromMinutes(1).TotalMilliseconds
         };
 

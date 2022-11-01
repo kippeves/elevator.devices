@@ -66,8 +66,25 @@ abstract class Elevator
         try
         {
             DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
-            deviceInfo = await conn.QueryFirstOrDefaultAsync<DeviceInfo>("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
-                new { ElevatorId = _deviceId });
+            deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
+                new { ElevatorId = _deviceId })).Select(row=> new DeviceInfo()
+            {
+                DeviceId = row.DeviceId,
+                BuildingId = row.BuildingId,
+                CompanyId = row.CompanyId,
+                ElevatorTypeId = row.ElevatorTypeId,
+                IsFunctioning = row.IsFunctioning,
+                Device = 
+                {
+                    ["DeviceName"] = row.Name,
+                    ["CompanyName"] = row.CompanyName,
+                    ["BuildingName"] = row.BuildingName,
+                    ["ElevatorType"] = row.ElevatorType,
+                },
+            }).Single();
+
+
+
             
             var remoteMetaDictionary=
                 (await conn.QueryAsync(
@@ -82,16 +99,16 @@ abstract class Elevator
 
             var twinCollection = new TwinCollection
             {
-                ["Name"] = deviceInfo.Device["Name"],
+                ["DeviceName"] = deviceInfo.Device["DeviceName"],
                 ["CompanyName"] = deviceInfo.Device["CompanyName"],
                 ["BuildingName"] = deviceInfo.Device["BuildingName"],
                 ["ElevatorType"] = deviceInfo.Device["ElevatorType"],
-                ["IsFunctioning"] = deviceInfo.Device["IsFunctioning"],
+                ["IsFunctioning"] = deviceInfo.IsFunctioning
             };
             if (deviceInfo.Meta.Count() < 0) twinCollection["meta"] = deviceInfo.Meta;
 
-            var twin = await DeviceClient.GetTwinAsync();
             await DeviceClient.UpdateReportedPropertiesAsync(twinCollection);
+            var twin = await DeviceClient.GetTwinAsync();
 
             Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
             Connected = true;
