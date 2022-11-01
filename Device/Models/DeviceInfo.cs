@@ -8,24 +8,29 @@ namespace SmartApp.CLI.Device.Models
 {
     internal class DeviceInfo
     {
-        //public DeviceInfo()
-        //{
-        //}
+        public DeviceInfo()
+        {
+        }
 
-        //public DeviceInfo(string deviceName, string deviceType, string location, int? interval = null)
-        //{
-        //    DeviceName = deviceName;
-        //    DeviceType = deviceType;
-        //    Location = location;
-        //    if (interval.HasValue) Interval = interval.Value;
-        //}
+        public DeviceInfo(string deviceId)
+        {
+            DeviceId = new Guid(deviceId);
+        }
 
-        //public string DeviceId { get; set; }
-        //public string ConnectionString { get; set; }
-        //public string DeviceName { get; set; }
-        //public string DeviceType { get; set; }
-        //public string Location { get; set; }
-        //public string Owner { get; set; }
-        //public int Interval { get; set; }
+        public Guid DeviceId { get; set; }
+        public Guid CompanyId { get; set; }
+        public Guid BuildingId { get; set; }
+        public Guid ElevatorTypeId { get; set; }
+        public Dictionary<string, dynamic?> Device { get; set; } = new()
+        {
+            ["Name"] = null,
+            ["CompanyName"] = null,
+            ["BuildingName"] = null,
+            ["ElevatorType"] = null,
+            ["IsFunctioning"] = false,
+            ["Interval"] = (int)TimeSpan.FromMinutes(1).TotalMilliseconds
+        };
+
+        public Dictionary<string, dynamic> Meta { get; set; }
     }
 }
