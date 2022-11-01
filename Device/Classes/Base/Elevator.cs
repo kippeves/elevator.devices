@@ -66,6 +66,8 @@ abstract class Elevator
         try
         {
             DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
+
+            var twinCollection = new TwinCollection();
             deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
                 new { ElevatorId = _deviceId })).Select(row=> new DeviceInfo()
             {
@@ -73,19 +75,16 @@ abstract class Elevator
                 BuildingId = row.BuildingId,
                 CompanyId = row.CompanyId,
                 ElevatorTypeId = row.ElevatorTypeId,
-                IsFunctioning = row.IsFunctioning,
+                IsFunctioning = twinCollection["IsFunctioning"] = row.IsFunctioning,
                 Device = 
                 {
-                    ["DeviceName"] = row.Name,
-                    ["CompanyName"] = row.CompanyName,
-                    ["BuildingName"] = row.BuildingName,
-                    ["ElevatorType"] = row.ElevatorType,
+                    ["DeviceName"] = twinCollection["DeviceName"] =  row.Name,
+                    ["CompanyName"] = twinCollection["CompanyName"] = row.CompanyName,
+                    ["BuildingName"] = twinCollection["BuildingName"] = row.BuildingName,
+                    ["ElevatorType"] = twinCollection["ElevatorType"] = row.ElevatorType,
                 },
             }).Single();
 
-
-
-            
             var remoteMetaDictionary=
                 (await conn.QueryAsync(
                     "select [key], [value] from ElevatorMetaInformation, Elevator Where ElevatorMetaInformation.ElevatorId = Elevator.Id AND Elevator.Id = @elevator_id",
@@ -97,14 +96,6 @@ abstract class Elevator
 
             deviceInfo.Meta = remoteMetaDictionary;
 
-            var twinCollection = new TwinCollection
-            {
-                ["DeviceName"] = deviceInfo.Device["DeviceName"],
-                ["CompanyName"] = deviceInfo.Device["CompanyName"],
-                ["BuildingName"] = deviceInfo.Device["BuildingName"],
-                ["ElevatorType"] = deviceInfo.Device["ElevatorType"],
-                ["IsFunctioning"] = deviceInfo.IsFunctioning
-            };
             if (deviceInfo.Meta.Count() < 0) twinCollection["meta"] = deviceInfo.Meta;
 
             await DeviceClient.UpdateReportedPropertiesAsync(twinCollection);
