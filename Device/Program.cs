@@ -14,10 +14,8 @@ namespace Device
         public static Task Main(string[] args)
         {
             var allElevators = new List<Elevator>();
-            
-            allElevators.Add(new LowHeightElevator(new DeviceInfo("4092b9f8-3183-426f-b8f6-d66721e09da1")));
-            allElevators.Add(new MidHeightElevator(new DeviceInfo("7910771f-5188-4973-8d0e-e854824b0160")));
-
+                allElevators.Add(new LowHeightElevator(new DeviceInfo("ebb40d70-7d01-4242-b13a-619dcc8c5bc2")));
+                allElevators.Add(new MidHeightElevator(new DeviceInfo("384cbacb-e781-4960-ac36-8dcb162a0a2b")));
             var setup = allElevators.Select(device => device.SetupAsync()).ToArray();
             Task.WaitAll(setup);
             Console.WriteLine("Connecting elevators.");

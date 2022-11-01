@@ -24,7 +24,7 @@ namespace SmartApp.CLI.Device.Models
         public bool IsFunctioning { get; set; }
         public Dictionary<string, dynamic?> Device { get; set; } = new()
         {
-            ["Name"] = null,
+            ["DeviceName"] = null,
             ["CompanyName"] = null,
             ["BuildingName"] = null,
             ["ElevatorType"] = null,
