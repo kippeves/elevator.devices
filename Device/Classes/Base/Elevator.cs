@@ -20,7 +20,7 @@ abstract class Elevator
     private Guid _deviceId;
     private readonly string _connectionString = "Server=tcp:kristiansql.database.windows.net,1433;Initial Catalog=azuresql;Persist Security Info=False;User ID=SqlAdmin;Password=9mFZPHjpgoH3KCKwHbmx;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
     private readonly DeviceInfo _desiredInfo;
-    private DeviceInfo deviceInfo;
+    private DeviceInfo _deviceInfo;
     private protected bool Connected = false;
 
     protected Elevator(DeviceInfo desiredInfo)
@@ -66,46 +66,37 @@ abstract class Elevator
         try
         {
             DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
-            deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
+
+            var twinCollection = new TwinCollection();
+            _deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
                 new { ElevatorId = _deviceId })).Select(row=> new DeviceInfo()
             {
                 DeviceId = row.DeviceId,
                 BuildingId = row.BuildingId,
                 CompanyId = row.CompanyId,
                 ElevatorTypeId = row.ElevatorTypeId,
-                IsFunctioning = row.IsFunctioning,
+                IsFunctioning = twinCollection["IsFunctioning"] = row.IsFunctioning,
                 Device = 
                 {
-                    ["DeviceName"] = row.Name,
-                    ["CompanyName"] = row.CompanyName,
-                    ["BuildingName"] = row.BuildingName,
-                    ["ElevatorType"] = row.ElevatorType,
+                    ["DeviceName"] = twinCollection["DeviceName"] =  row.Name,
+                    ["CompanyName"] = twinCollection["CompanyName"] = row.CompanyName,
+                    ["BuildingName"] = twinCollection["BuildingName"] = row.BuildingName,
+                    ["ElevatorType"] = twinCollection["ElevatorType"] = row.ElevatorType,
                 },
             }).Single();
 
-
-
-            
             var remoteMetaDictionary=
                 (await conn.QueryAsync(
-                    "select [key], [value] from ElevatorMetaInformation, Elevator Where ElevatorMetaInformation.ElevatorId = Elevator.Id AND Elevator.Id = @elevator_id",
+                    "SELECT * from (select Elevator.Id, [key], [value] from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value] FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
                     new {elevator_id = _deviceId})
                 ).ToDictionary(
                     row => (string)row.key, 
-                    row => (dynamic)row.value
+                    row => row.value
                 );
 
-            deviceInfo.Meta = remoteMetaDictionary;
+            _deviceInfo.Meta = remoteMetaDictionary;
 
-            var twinCollection = new TwinCollection
-            {
-                ["DeviceName"] = deviceInfo.Device["DeviceName"],
-                ["CompanyName"] = deviceInfo.Device["CompanyName"],
-                ["BuildingName"] = deviceInfo.Device["BuildingName"],
-                ["ElevatorType"] = deviceInfo.Device["ElevatorType"],
-                ["IsFunctioning"] = deviceInfo.IsFunctioning
-            };
-            if (deviceInfo.Meta.Count() < 0) twinCollection["meta"] = deviceInfo.Meta;
+            if (_deviceInfo.Meta.Count() < 0) twinCollection["meta"] = _deviceInfo.Meta;
 
             await DeviceClient.UpdateReportedPropertiesAsync(twinCollection);
             var twin = await DeviceClient.GetTwinAsync();
@@ -178,7 +169,8 @@ abstract class Elevator
         {
             if (!Connected) continue;
             await UpdateReportedProperties();
-            await Task.Delay(deviceInfo.Device["Interval"]);
+            Console.WriteLine($"{_deviceInfo.Device["DeviceName"].ToString()}: I'm looping...");
+            await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
 
