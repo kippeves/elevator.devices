@@ -120,6 +120,39 @@ abstract class Elevator
         }
     }
     
+    public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
+    {
+        //deviceInfo.Meta["DoorsAreOpen"]
+        var keyName = "DoorsAreOpen";
+        using IDbConnection conn = new SqlConnection(_connectionString);
+
+        if(!deviceInfo.Meta.ContainsKey(keyName))
+        {
+            try
+            {
+                var result = await conn.QueryFirstAsync<bool>(
+                    "SELECT value FROM ElevatorMetaInformation WHERE ElevatorMetaInformation.ElevatorId = @ElevatorId AND ElevatorMetaInformation.key = @key",
+                    new {ElevatorId = _deviceId, key = keyName}
+                );
+                deviceInfo.Meta.Add(keyName, result);
+            }
+            catch
+            {
+                deviceInfo.Meta.Add(keyName, false);
+            }
+        }
+        //1. change local state over opened or closed
+        deviceInfo.Meta[keyName] = !deviceInfo.Meta[keyName];
+
+        //2. update the database that the device is open/closed
+    
+
+        //3. update the deviceTwin that the device is open/closed
+        //4. update the log that the devices door is open/closed
+        //5. return 200 if all is ok, return message on detail that are not ok if they occur
+        return new MethodResponse(new byte[0], 200);
+    }
+
     public async Task Loop()
     {
         while (true)
