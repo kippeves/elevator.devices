@@ -132,7 +132,7 @@ abstract class Elevator
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
 
-        if(!deviceInfo.Meta.ContainsKey(keyName))
+        if(!_deviceInfo.Meta.ContainsKey(keyName))
         {
             try
             {
@@ -140,21 +140,21 @@ abstract class Elevator
                     "SELECT value FROM ElevatorMetaInformation WHERE ElevatorMetaInformation.ElevatorId = @ElevatorId AND ElevatorMetaInformation.key = @key",
                     new {ElevatorId = _deviceId, key = keyName}
                 );
-                deviceInfo.Meta.Add(keyName, result);
+                _deviceInfo.Meta.Add(keyName, result);
             }
             catch
             {
-                deviceInfo.Meta.Add(keyName, false);
+                _deviceInfo.Meta.Add(keyName, false);
             }
         }
         //1. change local state over opened or closed
-        deviceInfo.Meta[keyName] = !deviceInfo.Meta[keyName];
+        _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
 
         //2. update the database that the device is open/closed
-        UpdateMetaDataInDb(keyName, deviceInfo.Meta[keyName]);
+        UpdateMetaDataInDb(keyName, _deviceInfo.Meta[keyName]);
 
         //3. update the deviceTwin that the device is open/closed
-        UpdateMetaDataInTwin(keyName, deviceInfo.Meta[keyName]);
+        UpdateMetaDataInTwin(keyName, _deviceInfo.Meta[keyName]);
 
         //4. update the log that the devices door is open/closed
         UpdateLogWithEvent();
