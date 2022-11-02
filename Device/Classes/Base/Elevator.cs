@@ -120,6 +120,21 @@ abstract class Elevator
         }
     }
     
+    public async Task UpdateMetaDataInDb(string Key, dynamic value)
+    {
+
+    }
+
+    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
+    {
+
+    }
+
+    public async Task UpdateLogWithEvent()
+    {
+
+    }
+
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
         //deviceInfo.Meta["DoorsAreOpen"]
@@ -145,10 +160,14 @@ abstract class Elevator
         deviceInfo.Meta[keyName] = !deviceInfo.Meta[keyName];
 
         //2. update the database that the device is open/closed
-    
+        UpdateMetaDataInDb(keyName, deviceInfo.Meta[keyName]);
 
         //3. update the deviceTwin that the device is open/closed
+        UpdateMetaDataInTwin(keyName, deviceInfo.Meta[keyName]);
+
         //4. update the log that the devices door is open/closed
+        UpdateLogWithEvent();
+
         //5. return 200 if all is ok, return message on detail that are not ok if they occur
         return new MethodResponse(new byte[0], 200);
     }
