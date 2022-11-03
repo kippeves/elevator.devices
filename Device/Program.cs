@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Device.Classes;
 using Device.Classes.Base;
+using Device.Models;
 using Microsoft.Azure.Amqp.Serialization;
 using SmartApp.CLI.Device.Models;
 
