@@ -113,7 +113,7 @@ abstract class Elevator
 
             if( !_deviceInfo.Meta["device"].ContainsKey("DoorsAreOpen") )
             {
-                _deviceInfo.Meta["device"]["DoorsAreOpen"] = false;
+                _deviceInfo.Meta["device"]["DoorsAreOpen"] = false.ToString();
             }
 
             await UpdateReportedProperties();
