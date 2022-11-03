@@ -6,6 +6,7 @@ using System.Text;
 using System.Windows.Markup;
 using Dapper;
 using Device.Models;
+using Device.Services;
 using DotNetty.Transport.Channels;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
@@ -16,6 +17,7 @@ namespace Device.Classes.Base;
 
 abstract class Elevator
 {
+    private IDatabaseService _databaseService = new DatabaseService();
     private protected DeviceClient? DeviceClient;
     private readonly string _connect_Url = "https://kyhelevator.azurewebsites.net/api/Connect";
     private Guid _deviceId;
@@ -116,21 +118,6 @@ abstract class Elevator
             Connected = false;
         }
     }
-    
-    public async Task UpdateMetaDataInDb(string Key, dynamic value)
-    {
-
-    }
-
-    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
-    {
-
-    }
-
-    public async Task UpdateLogWithEvent()
-    {
-
-    }
 
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
@@ -156,15 +143,6 @@ abstract class Elevator
         //1. change local state over opened or closed
         _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
 
-        //2. update the database that the device is open/closed
-        UpdateMetaDataInDb(keyName, _deviceInfo.Meta[keyName]);
-
-        //3. update the deviceTwin that the device is open/closed
-        UpdateMetaDataInTwin(keyName, _deviceInfo.Meta[keyName]);
-
-        //4. update the log that the devices door is open/closed
-        UpdateLogWithEvent();
-
         //5. return 200 if all is ok, return message on detail that are not ok if they occur
         return new MethodResponse(new byte[0], 200);
     }
@@ -189,6 +167,7 @@ abstract class Elevator
             ["BuildingName"] = _deviceInfo.Device["BuildingName"],
             ["ElevatorType"] = _deviceInfo.Device["ElevatorType"],
         };
+//        _databaseService.UpdateElevatorMetaInfo()
         newTwin["meta"] = JObject.FromObject(_deviceInfo.Meta["device"]);
 
         await DeviceClient.UpdateReportedPropertiesAsync(newTwin);
