@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using System.Data.SqlClient;
 using Dapper;
+using Device.Interfaces;
 using Device.Models;
 
 namespace Device.Services;

@@ -5,6 +5,7 @@ using System.Runtime.Serialization.Formatters;
 using System.Text;
 using System.Windows.Markup;
 using Dapper;
+using Device.Interfaces;
 using Device.Models;
 using Device.Services;
 using DotNetty.Transport.Channels;
@@ -17,7 +18,6 @@ namespace Device.Classes.Base;
 
 abstract class Elevator
 {
-    private IDatabaseService _databaseService = new DatabaseService();
     private protected DeviceClient? DeviceClient;
     private readonly string _connect_Url = "https://kyhelevator.azurewebsites.net/api/Connect";
     private Guid _deviceId;
@@ -25,7 +25,7 @@ abstract class Elevator
     private readonly DeviceInfo _desiredInfo;
     private DeviceInfo _deviceInfo;
     private protected bool Connected = false;
-
+    private ILogService _logService;
     private IDatabaseService _databaseService;
 
     protected Elevator(DeviceInfo desiredInfo)
@@ -113,7 +113,7 @@ abstract class Elevator
 
             await UpdateReportedProperties();
             var twin = await DeviceClient.GetTwinAsync();
-
+            _logService = new LogService(_deviceId, _databaseService);
             Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
             Connected = true;
         }
@@ -124,16 +124,6 @@ abstract class Elevator
         }
     }
 
-    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
-    {
-
-    }
-
-    public async Task UpdateLogWithEvent()
-    {
-
-    }
-
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
         Console.WriteLine($"Starting OpenClose for: {_deviceInfo.Device["DeviceName"]}");
@@ -141,36 +131,36 @@ abstract class Elevator
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
 
-        if(!_deviceInfo.Meta.ContainsKey(keyName))
+        if (!_deviceInfo.Meta.ContainsKey(keyName))
         {
             try
             {
                 var result = await conn.QueryFirstAsync<bool>(
                     "SELECT value FROM ElevatorMetaInformation WHERE ElevatorMetaInformation.ElevatorId = @ElevatorId AND ElevatorMetaInformation.key = @key",
-                    new {ElevatorId = _deviceId, key = keyName}
+                    new { ElevatorId = _deviceId, key = keyName }
                 );
                 _deviceInfo.Meta.Add(keyName, result);
             }
             catch
             {
                 var defaultVaule = false;
+                _deviceInfo.Meta.Add(keyName, defaultVaule);
+                await conn.ExecuteAsync(
+                    "INSERT INTO ElevatorMetaInformation VALUES (@ElevatorId, @Key, @Value)",
+                    new { ElevatorId = _deviceId, Key = keyName, Value = defaultVaule }
+                    );
+            }
+        }
+        //1. change local state over opened or closed
+        _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
+
         //2. update the database that the device is open/closed
-        var success = await _databaseService.UpdateElevatorMetaInfo( _deviceId, keyName, _deviceInfo.Meta[keyName]);
+        var success = await _databaseService.UpdateElevatorMetaInfo(_deviceId, keyName, _deviceInfo.Meta[keyName]);
 
         //4. update the log that the devices door is open/closed
         //var description = _deviceInfo.Meta[keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
         //var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close";
         //await _databaseService.UpdateLogWithEvent( _deviceId, description, eventType, success);
-
-
-        //2. update the database that the device is open/closed
-        UpdateMetaDataInDb(keyName, _deviceInfo.Meta[keyName]);
-
-        //3. update the deviceTwin that the device is open/closed
-        UpdateMetaDataInTwin(keyName, _deviceInfo.Meta[keyName]);
-
-        //4. update the log that the devices door is open/closed
-        UpdateLogWithEvent();
 
         //5. return 200 if all is ok, return message on detail that are not ok if they occur
         return success ?

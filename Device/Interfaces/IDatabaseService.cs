@@ -1,6 +1,6 @@
 using Device.Models;
 
-namespace Device.Services;
+namespace Device.Interfaces;
 
 public interface IDatabaseService
 {
