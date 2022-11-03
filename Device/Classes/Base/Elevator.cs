@@ -3,14 +3,16 @@ using System.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Runtime.Serialization.Formatters;
 using System.Text;
+using System.Windows.Markup;
 using Dapper;
+using Device.Interfaces;
 using Device.Models;
 using Device.Services;
 using DotNetty.Transport.Channels;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
-using SmartApp.CLI.Device.Models;
+using Newtonsoft.Json.Linq;
 
 namespace Device.Classes.Base;
 
@@ -91,20 +93,25 @@ abstract class Elevator
                 },
             }).Single();
 
-            var remoteMetaDictionary=
+            var query =
                 (await conn.QueryAsync(
-                    "SELECT * from (select Elevator.Id, [key], [value] from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value] FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
+                    "SELECT * from (select Elevator.Id, [key], [value],(select 'device') as 'type' from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value], (select 'type') AS 'type' FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
                     new {elevator_id = _deviceId})
-                ).ToDictionary(
-                    row => (string)row.key, 
-                    row => row.value
-                );
+                ).ToList();
 
+            Dictionary<string, dynamic> remoteMetaDictionary = new();
+            if (query.Any()) {
+                foreach (var row in query){
+                    if (!remoteMetaDictionary.ContainsKey(row.type)){
+                        remoteMetaDictionary[row.type] = new Dictionary<string, string>();
+                    }
+                    remoteMetaDictionary[row.type][row.key] = row.value;
+                }
+            };
+            
             _deviceInfo.Meta = remoteMetaDictionary;
 
-            if (_deviceInfo.Meta.Count() < 0) twinCollection["meta"] = _deviceInfo.Meta;
-
-            await DeviceClient.UpdateReportedPropertiesAsync(twinCollection);
+            await UpdateReportedProperties();
             var twin = await DeviceClient.GetTwinAsync();
 
             Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
@@ -115,11 +122,6 @@ abstract class Elevator
             Console.WriteLine(e.Message);
             Connected = false;
         }
-    }
-
-    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
-    {
-
     }
 
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
@@ -172,10 +174,23 @@ abstract class Elevator
         {
             if (!Connected) continue;
             await UpdateReportedProperties();
-            Console.WriteLine($"{_deviceInfo.Device["DeviceName"].ToString()}: I'm looping...");
+            Console.WriteLine($"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I'm updated my twin!");
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
 
-    protected abstract Task UpdateReportedProperties();
+    public async Task UpdateReportedProperties()
+    {
+        TwinCollection newTwin = new TwinCollection()
+        {
+            ["DeviceName"] = _deviceInfo.Device["DeviceName"],
+            ["CompanyName"] = _deviceInfo.Device["CompanyName"],
+            ["BuildingName"] = _deviceInfo.Device["BuildingName"],
+            ["ElevatorType"] = _deviceInfo.Device["ElevatorType"],
+        };
+//        _databaseService.UpdateElevatorMetaInfo()
+        newTwin["meta"] = JObject.FromObject(_deviceInfo.Meta["device"]);
+
+        await DeviceClient.UpdateReportedPropertiesAsync(newTwin);
+    }
 }
