@@ -136,15 +136,13 @@ abstract class Elevator
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
 
+        var oldValue = _deviceInfo.Meta["device"][keyName];
         _deviceInfo.Meta["device"][keyName] = !_deviceInfo.Meta["device"][keyName];
 
         var description = _deviceInfo.Meta["device"][keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
         var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
 
-
-
-        //string description, string eventTypeId, bool result
-        await _logService.AddAsync(description, "", true);
+        await _logService.AddAsync(description, eventType, oldValue.ToString(), _deviceInfo.Meta["device"][keyName].ToString());
 
         Console.WriteLine($"OpenCloseDoor Completed for: {_deviceInfo.Device["DeviceName"]}");
         return new MethodResponse(new byte[0], 200);
