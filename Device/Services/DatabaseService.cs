@@ -1,6 +1,7 @@
 using System.Data;
 using System.Data.SqlClient;
 using Dapper;
+using Device.Models;
 
 namespace Device.Services;
 
@@ -43,37 +44,21 @@ public class DatabaseService : IDatabaseService
         catch{}
         return false;
     }
-    public async Task UpdateLogWithEvent(Guid ElevatorId, string Description, string EventType, bool EventResult)
+    public async Task<bool> UpdateLogWithEvent(List<ElevatorLog> list)
     {
+        var updateQuery = "INSERT INTO ElevatorLog (ElevatorId, TimeStamp, LogDescription, EventTypeId, EventResult) VALUES";
+        foreach(var listItem in list)
+        {
+            updateQuery += $"({listItem.ElevatorId},{listItem.TimeStamp},{listItem.Description},{listItem.EventTypeId},{listItem.EventResult})";
+        }
         try{
             using IDbConnection conn = new SqlConnection(_connectionString);
-            
-            //fetch ID for EventType, Create a new entry if it does not exist
-            //log EventType with new info
-
-            var EventTypeId = await conn.QueryFirstOrDefaultAsync<string>(
-                "SELECT Id FROM EventType WHERE EventType.Name = @EventType",
-                new { EventType = EventType}
-            );
-
-            if(string.IsNullOrEmpty(EventTypeId))
-            {
-                await conn.ExecuteAsync(
-                    "INSERT INTO EventType (Name) VALUES (@EventType)",
-                    new {EventType = EventType}
-                );
-
-                EventTypeId = await conn.QueryFirstOrDefaultAsync<string>(
-                    "SELECT Id FROM EventType WHERE EventType.Name = @EventType",
-                    new { EventType = EventType}
-                );
-            }
-
-            await conn.ExecuteAsync(
-                "INSERT INTO ElevatorLog (ElevatorId, TimeStamp, LogDescription, EventTypeId, EventResult) VALUES (@ElevatorId, @TimeStamp, @LogDescription, @EventTypeId, @EventResult)",
-                new { ElevatorId = ElevatorId, TimeStamp = DateTime.Now, LogDescription = Description, EventTypeId = EventTypeId, EventResult = EventResult}
-            );
+            await conn.QueryAsync(updateQuery);
+            return true;
         }
-        catch{}
+        catch{
+
+        }
+        return false;
     }
 }
