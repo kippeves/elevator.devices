@@ -26,9 +26,12 @@ abstract class Elevator
     private DeviceInfo _deviceInfo;
     private protected bool Connected = false;
 
+    private IDatabaseService _databaseService;
+
     protected Elevator(DeviceInfo desiredInfo)
     {
         _desiredInfo = desiredInfo;
+        _databaseService = new DatabaseService(_connectionString);
     }
 
     public virtual async Task SetupAsync()
@@ -69,6 +72,8 @@ abstract class Elevator
         try
         {
             DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
+
+            await DeviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, null);
 
             var twinCollection = new TwinCollection();
             _deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
@@ -119,8 +124,19 @@ abstract class Elevator
         }
     }
 
+    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
+    {
+
+    }
+
+    public async Task UpdateLogWithEvent()
+    {
+
+    }
+
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
+        Console.WriteLine($"Starting OpenClose for: {_deviceInfo.Device["DeviceName"]}");
         //deviceInfo.Meta["DoorsAreOpen"]
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
@@ -137,14 +153,29 @@ abstract class Elevator
             }
             catch
             {
-                _deviceInfo.Meta.Add(keyName, false);
-            }
-        }
-        //1. change local state over opened or closed
-        _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
+                var defaultVaule = false;
+        //2. update the database that the device is open/closed
+        var success = await _databaseService.UpdateElevatorMetaInfo( _deviceId, keyName, _deviceInfo.Meta[keyName]);
+
+        //4. update the log that the devices door is open/closed
+        //var description = _deviceInfo.Meta[keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
+        //var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close";
+        //await _databaseService.UpdateLogWithEvent( _deviceId, description, eventType, success);
+
+
+        //2. update the database that the device is open/closed
+        UpdateMetaDataInDb(keyName, _deviceInfo.Meta[keyName]);
+
+        //3. update the deviceTwin that the device is open/closed
+        UpdateMetaDataInTwin(keyName, _deviceInfo.Meta[keyName]);
+
+        //4. update the log that the devices door is open/closed
+        UpdateLogWithEvent();
 
         //5. return 200 if all is ok, return message on detail that are not ok if they occur
-        return new MethodResponse(new byte[0], 200);
+        return success ?
+            new MethodResponse(new byte[0], 200) :
+            new MethodResponse(new byte[0], 500);
     }
 
     public async Task Loop()

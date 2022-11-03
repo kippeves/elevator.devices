@@ -1,7 +1,9 @@
+using Device.Models;
+
 namespace Device.Services;
 
 public interface IDatabaseService
 {
-    Task UpdateLogWithEvent(Guid ElevatorId, string Description, string EventType, bool EventResult);
+    Task<bool> UpdateLogWithEvent(List<ElevatorLog> list);
     Task<bool> UpdateElevatorMetaInfo(Guid ElevatorId, string Key, dynamic value);
 }
