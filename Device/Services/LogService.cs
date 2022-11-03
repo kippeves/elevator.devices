@@ -23,6 +23,12 @@ namespace Device.Services
             _logs = new List<ElevatorLog>();
         }
 
+
+        public List<ElevatorLog> GetList()
+        {
+            return _logs;
+        }
+
         public Task AddAsync(string description, string eventTypeId, string oldValue, string newValue)
         {
             var logEntry = new ElevatorLog(_id, description, eventTypeId, oldValue, newValue);

@@ -21,7 +21,10 @@ abstract class Elevator
     private protected DeviceClient? DeviceClient;
     private readonly string _connect_Url = "https://kyhelevator.azurewebsites.net/api/Connect";
     private Guid _deviceId;
-    private readonly string _connectionString = "Server=tcp:kristiansql.database.windows.net,1433;Initial Catalog=azuresql;Persist Security Info=False;User ID=SqlAdmin;Password=9mFZPHjpgoH3KCKwHbmx;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+
+    private readonly string _connectionString =
+        "Server=tcp:kristiansql.database.windows.net,1433;Initial Catalog=azuresql;Persist Security Info=False;User ID=SqlAdmin;Password=9mFZPHjpgoH3KCKwHbmx;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+
     private readonly DeviceInfo _desiredInfo;
     private DeviceInfo _deviceInfo;
     private protected bool Connected = false;
@@ -43,7 +46,7 @@ abstract class Elevator
         try
         {
             deviceConnectionstring = await conn.QueryFirstOrDefaultAsync<string>(
-                "SELECT ConnectionString FROM Elevator WHERE Id = @ElevatorId", new { ElevatorId = _deviceId });
+                "SELECT ConnectionString FROM Elevator WHERE Id = @ElevatorId", new {ElevatorId = _deviceId});
         }
         catch (Exception e)
         {
@@ -54,13 +57,13 @@ abstract class Elevator
         {
             Console.WriteLine("Initializing connectionstring. Please wait...");
             using var http = new HttpClient();
-            var result = await http.PostAsJsonAsync(_connect_Url, new { ElevatorId = _deviceId });
+            var result = await http.PostAsJsonAsync(_connect_Url, new {ElevatorId = _deviceId});
             deviceConnectionstring = await result.Content.ReadAsStringAsync();
             try
             {
                 await conn.ExecuteAsync(
                     "UPDATE Elevator SET ConnectionString = @ConnectionString WHERE Id = @ElevatorId",
-                    new { ElevatorId = _deviceId, ConnectionString = deviceConnectionstring }
+                    new {ElevatorId = _deviceId, ConnectionString = deviceConnectionstring}
                 );
             }
             catch (Exception e)
@@ -77,16 +80,16 @@ abstract class Elevator
 
             var twinCollection = new TwinCollection();
             _deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
-                new { ElevatorId = _deviceId })).Select(row=> new DeviceInfo()
+                new {ElevatorId = _deviceId})).Select(row => new DeviceInfo()
             {
                 DeviceId = row.DeviceId,
                 BuildingId = row.BuildingId,
                 CompanyId = row.CompanyId,
                 ElevatorTypeId = row.ElevatorTypeId,
                 IsFunctioning = twinCollection["IsFunctioning"] = row.IsFunctioning,
-                Device = 
+                Device =
                 {
-                    ["DeviceName"] = twinCollection["DeviceName"] =  row.Name,
+                    ["DeviceName"] = twinCollection["DeviceName"] = row.Name,
                     ["CompanyName"] = twinCollection["CompanyName"] = row.CompanyName,
                     ["BuildingName"] = twinCollection["BuildingName"] = row.BuildingName,
                     ["ElevatorType"] = twinCollection["ElevatorType"] = row.ElevatorType,
@@ -100,26 +103,30 @@ abstract class Elevator
                 ).ToList();
 
             Dictionary<string, dynamic> remoteMetaDictionary = new();
-            if (query.Any()) {
-                foreach (var row in query){
-                    if (!remoteMetaDictionary.ContainsKey(row.type)){
-                        remoteMetaDictionary[row.type] = new Dictionary<string, string>();
+            if (query.Any())
+            {
+                foreach (var row in query)
+                {
+                    if (!remoteMetaDictionary.ContainsKey(row.type))
+                    {
+                        remoteMetaDictionary[row.type] = new Dictionary<string, dynamic>();
                     }
+
                     remoteMetaDictionary[row.type][row.key] = row.value;
                 }
-            };
-
-            _deviceInfo.Meta = remoteMetaDictionary;
-
-            if( !_deviceInfo.Meta["device"].ContainsKey("DoorsAreOpen") )
-            {
-                _deviceInfo.Meta["device"]["DoorsAreOpen"] = false.ToString();
             }
 
-            await UpdateReportedProperties();
+            ;
+
+            _deviceInfo.Meta = remoteMetaDictionary;
+            _deviceInfo.Meta["device"]["DoorsAreOpen"] = false;
+
             var twin = await DeviceClient.GetTwinAsync();
             _logService = new LogService(_deviceId, _databaseService);
-            Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
+            //await UpdateReportedProperties();
+            await UpdateTwin();
+            Console.WriteLine(
+                $"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
             Connected = true;
         }
         catch (Exception e)
@@ -135,15 +142,23 @@ abstract class Elevator
         //deviceInfo.Meta["DoorsAreOpen"]
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
+        var oldValue = false;
+        var newValue = false;
+        try
+        {
+            Console.WriteLine(_deviceInfo.Meta["device"][keyName]);
+            oldValue = _deviceInfo.Meta["device"][keyName];
+            newValue = !oldValue;
+            _deviceInfo.Meta["device"][keyName] = newValue;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+        }
 
-        var oldValue = _deviceInfo.Meta["device"][keyName];
-        _deviceInfo.Meta["device"][keyName] = !_deviceInfo.Meta["device"][keyName];
-
-        var description = _deviceInfo.Meta["device"][keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
-        var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
-
-        await _logService.AddAsync(description, eventType, oldValue.ToString(), _deviceInfo.Meta["device"][keyName].ToString());
-
+        var description = newValue ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
+        var eventType = newValue ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
+        await _logService.AddAsync(description, eventType, oldValue ? "True" : "False", newValue ? "True" : "False");
         Console.WriteLine($"OpenCloseDoor Completed for: {_deviceInfo.Device["DeviceName"]}");
         return new MethodResponse(new byte[0], 200);
     }
@@ -153,13 +168,23 @@ abstract class Elevator
         while (true)
         {
             if (!Connected) continue;
-            await UpdateReportedProperties();
-            Console.WriteLine($"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I'm updated my twin!");
+
+            List<Task> tasks = new();
+            tasks.Add(UpdateTwin());
+            
+            if (_logService.GetList().Any())
+                tasks.Add(_logService.PushToDatabaseAsync());
+
+            Task.WaitAll(tasks.ToArray());
+
+            Console.WriteLine(
+                $"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I've updated my twin!");
+
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
 
-    public async Task UpdateReportedProperties()
+    public async Task UpdateTwin()
     {
         TwinCollection newTwin = new TwinCollection()
         {
@@ -168,9 +193,7 @@ abstract class Elevator
             ["BuildingName"] = _deviceInfo.Device["BuildingName"],
             ["ElevatorType"] = _deviceInfo.Device["ElevatorType"],
         };
-//        _databaseService.UpdateElevatorMetaInfo()
         newTwin["meta"] = JObject.FromObject(_deviceInfo.Meta["device"]);
-
         await DeviceClient.UpdateReportedPropertiesAsync(newTwin);
     }
 }

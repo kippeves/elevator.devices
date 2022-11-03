@@ -47,19 +47,21 @@ public class DatabaseService : IDatabaseService
     }
     public async Task<bool> UpdateLogWithEvent(List<ElevatorLog> list)
     {
-        var updateQuery = "INSERT INTO ElevatorLog (ElevatorId, TimeStamp, LogDescription, EventType, EventResult, EventPreviousValue) VALUES";
+        var updateQuery = "INSERT INTO ElevatorLog ([ElevatorId], [TimeStamp], [LogDescription], [EventType], [EventResult], [EventPreviousValue]) VALUES";
         foreach(var listItem in list)
         {
-            updateQuery += $"({listItem.ElevatorId},{listItem.TimeStamp},{listItem.Description},{listItem.EventType},{listItem.NewValue},{listItem.OldValue})";
+            updateQuery += $"('{listItem.ElevatorId}',{listItem.TimeStamp},'{listItem.Description}','{listItem.EventType}','{listItem.NewValue}','{listItem.OldValue}')";
+            if (!listItem.Equals(list.Last())) updateQuery += ",";
         }
         try{
             using IDbConnection conn = new SqlConnection(_connectionString);
             await conn.QueryAsync(updateQuery);
+            Console.WriteLine("I successfully wrote the logs into the database, check now!");
             return true;
         }
-        catch{
-
+        catch(Exception e){
+            Console.WriteLine(e.Message);
+            return false;
         }
-        return false;
     }
 }
