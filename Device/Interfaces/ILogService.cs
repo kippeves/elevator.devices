@@ -8,7 +8,7 @@ namespace Device.Interfaces
 {
     internal interface ILogService
     {
-        public Task AddAsync(string description, string eventTypeId, bool result);
+        public Task AddAsync(string description, string eventType, string oldValue, string newValue);
         public Task<bool> PushToDatabaseAsync();
     }
 }

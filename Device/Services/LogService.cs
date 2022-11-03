@@ -23,9 +23,9 @@ namespace Device.Services
             _logs = new List<ElevatorLog>();
         }
 
-        public Task AddAsync(string description, string eventTypeId, bool result)
+        public Task AddAsync(string description, string eventTypeId, string oldValue, string newValue)
         {
-            var logEntry = new ElevatorLog(_id, description, eventTypeId, result);
+            var logEntry = new ElevatorLog(_id, description, eventTypeId, oldValue, newValue);
             _logs.Add(logEntry);
             return Task.CompletedTask;
         }
