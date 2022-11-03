@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Device.Classes.Base;
+using Device.Models;
 using SmartApp.CLI.Device.Models;
 
 namespace Device.Classes
@@ -12,11 +13,6 @@ namespace Device.Classes
     {
         public MidHeightElevator(DeviceInfo info) : base(info)
         {
-        }
-
-        protected override Task UpdateReportedProperties()
-        {
-            return Task.CompletedTask;
         }
     }
 }

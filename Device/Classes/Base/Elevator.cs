@@ -3,13 +3,16 @@ using System.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Runtime.Serialization.Formatters;
 using System.Text;
+using System.Windows.Markup;
 using Dapper;
+using Device.Interfaces;
 using Device.Models;
+using Device.Services;
 using DotNetty.Transport.Channels;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
-using SmartApp.CLI.Device.Models;
+using Newtonsoft.Json.Linq;
 
 namespace Device.Classes.Base;
 
@@ -22,10 +25,13 @@ abstract class Elevator
     private readonly DeviceInfo _desiredInfo;
     private DeviceInfo _deviceInfo;
     private protected bool Connected = false;
+    private ILogService _logService;
+    private IDatabaseService _databaseService;
 
     protected Elevator(DeviceInfo desiredInfo)
     {
         _desiredInfo = desiredInfo;
+        _databaseService = new DatabaseService(_connectionString);
     }
 
     public virtual async Task SetupAsync()
@@ -67,6 +73,8 @@ abstract class Elevator
         {
             DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
 
+            await DeviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, null);
+
             var twinCollection = new TwinCollection();
             _deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
                 new { ElevatorId = _deviceId })).Select(row=> new DeviceInfo()
@@ -85,22 +93,27 @@ abstract class Elevator
                 },
             }).Single();
 
-            var remoteMetaDictionary=
+            var query =
                 (await conn.QueryAsync(
-                    "SELECT * from (select Elevator.Id, [key], [value] from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value] FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
+                    "SELECT * from (select Elevator.Id, [key], [value],(select 'device') as 'type' from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value], (select 'type') AS 'type' FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
                     new {elevator_id = _deviceId})
-                ).ToDictionary(
-                    row => (string)row.key, 
-                    row => row.value
-                );
+                ).ToList();
 
+            Dictionary<string, dynamic> remoteMetaDictionary = new();
+            if (query.Any()) {
+                foreach (var row in query){
+                    if (!remoteMetaDictionary.ContainsKey(row.type)){
+                        remoteMetaDictionary[row.type] = new Dictionary<string, string>();
+                    }
+                    remoteMetaDictionary[row.type][row.key] = row.value;
+                }
+            };
+            
             _deviceInfo.Meta = remoteMetaDictionary;
 
-            if (_deviceInfo.Meta.Count() < 0) twinCollection["meta"] = _deviceInfo.Meta;
-
-            await DeviceClient.UpdateReportedPropertiesAsync(twinCollection);
+            await UpdateReportedProperties();
             var twin = await DeviceClient.GetTwinAsync();
-
+            _logService = new LogService(_deviceId, _databaseService);
             Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
             Connected = true;
         }
@@ -110,57 +123,49 @@ abstract class Elevator
             Connected = false;
         }
     }
-    
-    public async Task UpdateMetaDataInDb(string Key, dynamic value)
-    {
-
-    }
-
-    public async Task UpdateMetaDataInTwin(string Key, dynamic value)
-    {
-
-    }
-
-    public async Task UpdateLogWithEvent()
-    {
-
-    }
 
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
+        Console.WriteLine($"Starting OpenClose for: {_deviceInfo.Device["DeviceName"]}");
         //deviceInfo.Meta["DoorsAreOpen"]
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
 
-        if(!_deviceInfo.Meta.ContainsKey(keyName))
+        if (!_deviceInfo.Meta.ContainsKey(keyName))
         {
             try
             {
                 var result = await conn.QueryFirstAsync<bool>(
                     "SELECT value FROM ElevatorMetaInformation WHERE ElevatorMetaInformation.ElevatorId = @ElevatorId AND ElevatorMetaInformation.key = @key",
-                    new {ElevatorId = _deviceId, key = keyName}
+                    new { ElevatorId = _deviceId, key = keyName }
                 );
                 _deviceInfo.Meta.Add(keyName, result);
             }
             catch
             {
-                _deviceInfo.Meta.Add(keyName, false);
+                var defaultVaule = false;
+                _deviceInfo.Meta.Add(keyName, defaultVaule);
+                await conn.ExecuteAsync(
+                    "INSERT INTO ElevatorMetaInformation VALUES (@ElevatorId, @Key, @Value)",
+                    new { ElevatorId = _deviceId, Key = keyName, Value = defaultVaule }
+                    );
             }
         }
         //1. change local state over opened or closed
         _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
 
         //2. update the database that the device is open/closed
-        UpdateMetaDataInDb(keyName, _deviceInfo.Meta[keyName]);
-
-        //3. update the deviceTwin that the device is open/closed
-        UpdateMetaDataInTwin(keyName, _deviceInfo.Meta[keyName]);
+        var success = await _databaseService.UpdateElevatorMetaInfo(_deviceId, keyName, _deviceInfo.Meta[keyName]);
 
         //4. update the log that the devices door is open/closed
-        UpdateLogWithEvent();
+        //var description = _deviceInfo.Meta[keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
+        //var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close";
+        //await _databaseService.UpdateLogWithEvent( _deviceId, description, eventType, success);
 
         //5. return 200 if all is ok, return message on detail that are not ok if they occur
-        return new MethodResponse(new byte[0], 200);
+        return success ?
+            new MethodResponse(new byte[0], 200) :
+            new MethodResponse(new byte[0], 500);
     }
 
     public async Task Loop()
@@ -169,10 +174,23 @@ abstract class Elevator
         {
             if (!Connected) continue;
             await UpdateReportedProperties();
-            Console.WriteLine($"{_deviceInfo.Device["DeviceName"].ToString()}: I'm looping...");
+            Console.WriteLine($"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I'm updated my twin!");
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
 
-    protected abstract Task UpdateReportedProperties();
+    public async Task UpdateReportedProperties()
+    {
+        TwinCollection newTwin = new TwinCollection()
+        {
+            ["DeviceName"] = _deviceInfo.Device["DeviceName"],
+            ["CompanyName"] = _deviceInfo.Device["CompanyName"],
+            ["BuildingName"] = _deviceInfo.Device["BuildingName"],
+            ["ElevatorType"] = _deviceInfo.Device["ElevatorType"],
+        };
+//        _databaseService.UpdateElevatorMetaInfo()
+        newTwin["meta"] = JObject.FromObject(_deviceInfo.Meta["device"]);
+
+        await DeviceClient.UpdateReportedPropertiesAsync(newTwin);
+    }
 }
