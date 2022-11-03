@@ -11,16 +11,18 @@ namespace Device.Models
         public Guid ElevatorId { get; set; }
         public DateTime TimeStamp { get; set; }
         public string Description { get; set; }
-        public Guid EventTypeId { get; set; }
-        public bool  EventResult { get; set; }
+        public string EventType { get; set; }
+        public string OldValue { get; set; }
+        public string NewValue { get; set; }
 
-        public ElevatorLog(Guid elevatorId, string description, string eventTypeId, bool eventResult)
+        public ElevatorLog(Guid elevatorId, string description, string eventType, string oldValue, string newValue)
         {
             ElevatorId = elevatorId;
             TimeStamp = DateTime.Now;
             Description = description;
-            EventTypeId = new Guid(eventTypeId);
-            EventResult = EventResult;
+            EventType = eventType;
+            OldValue = oldValue;
+            NewValue = newValue;
         }
     }
 }
