@@ -108,8 +108,13 @@ abstract class Elevator
                     remoteMetaDictionary[row.type][row.key] = row.value;
                 }
             };
-            
+
             _deviceInfo.Meta = remoteMetaDictionary;
+
+            if( !_deviceInfo.Meta["device"].ContainsKey("DoorsAreOpen") )
+            {
+                _deviceInfo.Meta["device"]["DoorsAreOpen"] = false;
+            }
 
             await UpdateReportedProperties();
             var twin = await DeviceClient.GetTwinAsync();
@@ -126,46 +131,23 @@ abstract class Elevator
 
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
-        Console.WriteLine($"Starting OpenClose for: {_deviceInfo.Device["DeviceName"]}");
+        Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
         //deviceInfo.Meta["DoorsAreOpen"]
         var keyName = "DoorsAreOpen";
         using IDbConnection conn = new SqlConnection(_connectionString);
 
-        if (!_deviceInfo.Meta.ContainsKey(keyName))
-        {
-            try
-            {
-                var result = await conn.QueryFirstAsync<bool>(
-                    "SELECT value FROM ElevatorMetaInformation WHERE ElevatorMetaInformation.ElevatorId = @ElevatorId AND ElevatorMetaInformation.key = @key",
-                    new { ElevatorId = _deviceId, key = keyName }
-                );
-                _deviceInfo.Meta.Add(keyName, result);
-            }
-            catch
-            {
-                var defaultVaule = false;
-                _deviceInfo.Meta.Add(keyName, defaultVaule);
-                await conn.ExecuteAsync(
-                    "INSERT INTO ElevatorMetaInformation VALUES (@ElevatorId, @Key, @Value)",
-                    new { ElevatorId = _deviceId, Key = keyName, Value = defaultVaule }
-                    );
-            }
-        }
-        //1. change local state over opened or closed
-        _deviceInfo.Meta[keyName] = !_deviceInfo.Meta[keyName];
+        _deviceInfo.Meta["device"][keyName] = !_deviceInfo.Meta["device"][keyName];
 
-        //2. update the database that the device is open/closed
-        var success = await _databaseService.UpdateElevatorMetaInfo(_deviceId, keyName, _deviceInfo.Meta[keyName]);
+        var description = _deviceInfo.Meta["device"][keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
+        var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
 
-        //4. update the log that the devices door is open/closed
-        //var description = _deviceInfo.Meta[keyName] ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
-        //var eventType = _deviceInfo.Meta[keyName] ? "Doors_Open" : "Doors_Close";
-        //await _databaseService.UpdateLogWithEvent( _deviceId, description, eventType, success);
 
-        //5. return 200 if all is ok, return message on detail that are not ok if they occur
-        return success ?
-            new MethodResponse(new byte[0], 200) :
-            new MethodResponse(new byte[0], 500);
+
+        //string description, string eventTypeId, bool result
+        await _logService.AddAsync(description, "", true);
+
+        Console.WriteLine($"OpenCloseDoor Completed for: {_deviceInfo.Device["DeviceName"]}");
+        return new MethodResponse(new byte[0], 200);
     }
 
     public async Task Loop()
