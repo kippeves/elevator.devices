@@ -1,199 +1,322 @@
-﻿using System.Data;
-using System.Data.SqlClient;
-using System.Net.Http.Json;
-using System.Runtime.Serialization.Formatters;
-using System.Text;
-using System.Windows.Markup;
-using Dapper;
-using Device.Interfaces;
+﻿using Device.Interfaces;
 using Device.Models;
 using Device.Services;
-using DotNetty.Transport.Channels;
 using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Data;
+using System.Text;
 
 namespace Device.Classes.Base;
 
-abstract class Elevator
+class Elevator
 {
-    private protected DeviceClient? DeviceClient;
-    private readonly string _connect_Url = "https://kyhelevator.azurewebsites.net/api/Connect";
-    private Guid _deviceId;
+    protected readonly Guid _deviceId;
+    
+    protected DeviceInfo? _deviceInfo;
+    protected DeviceClient _deviceClient;
 
-    private readonly string _connectionString =
-        "Server=tcp:kristiansql.database.windows.net,1433;Initial Catalog=azuresql;Persist Security Info=False;User ID=SqlAdmin;Password=9mFZPHjpgoH3KCKwHbmx;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+    protected bool _connected = false;
+    
+    private ILogService? _logService;
+    private IChangeService? _changeService;
+    private readonly IDatabaseService _databaseService;
 
-    private readonly DeviceInfo _desiredInfo;
-    private DeviceInfo _deviceInfo;
-    private protected bool Connected = false;
-    private ILogService _logService;
-    private IDatabaseService _databaseService;
-
-    protected Elevator(DeviceInfo desiredInfo)
-    {
-        _desiredInfo = desiredInfo;
-        _databaseService = new DatabaseService(_connectionString);
+    public Elevator(string id, IDatabaseService databaseService){
+        _deviceId = new Guid(id);
+        _databaseService = databaseService;
     }
 
     public virtual async Task SetupAsync()
     {
-        _deviceId = _desiredInfo.DeviceId;
-        using IDbConnection conn = new SqlConnection(_connectionString);
-
         var deviceConnectionstring = "";
-        try
+
+        var (status, data) = await _databaseService.GetConnectionstringForIdAsync(_deviceId);
+        if (status)
         {
-            deviceConnectionstring = await conn.QueryFirstOrDefaultAsync<string>(
-                "SELECT ConnectionString FROM Elevator WHERE Id = @ElevatorId", new {ElevatorId = _deviceId});
+            deviceConnectionstring = data;
         }
-        catch (Exception e)
-        {
-            Console.WriteLine(e.Message);
-        }
+        else Console.Write(data);
 
         if (string.IsNullOrEmpty(deviceConnectionstring))
         {
             Console.WriteLine("Initializing connectionstring. Please wait...");
-            using var http = new HttpClient();
-            var result = await http.PostAsJsonAsync(_connect_Url, new {ElevatorId = _deviceId});
-            deviceConnectionstring = await result.Content.ReadAsStringAsync();
-            try
-            {
-                await conn.ExecuteAsync(
-                    "UPDATE Elevator SET ConnectionString = @ConnectionString WHERE Id = @ElevatorId",
-                    new {ElevatorId = _deviceId, ConnectionString = deviceConnectionstring}
-                );
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-            }
+            var updateResult = await _databaseService.UpdateConnectionStringForElevatorByIdAsync(_deviceId);
+            deviceConnectionstring = updateResult.data;
         }
 
         try
         {
-            DeviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
-
-            await DeviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, null);
-
-            var twinCollection = new TwinCollection();
-            _deviceInfo = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
-                new {ElevatorId = _deviceId})).Select(row => new DeviceInfo()
+            _deviceClient = DeviceClient.CreateFromConnectionString(deviceConnectionstring);
+            var deviceResult = await _databaseService.GetElevatorByIdAsync(_deviceId);
+            if (deviceResult.status)
             {
-                DeviceId = row.DeviceId,
-                BuildingId = row.BuildingId,
-                CompanyId = row.CompanyId,
-                ElevatorTypeId = row.ElevatorTypeId,
-                IsFunctioning = twinCollection["IsFunctioning"] = row.IsFunctioning,
-                Device =
-                {
-                    ["DeviceName"] = twinCollection["DeviceName"] = row.Name,
-                    ["CompanyName"] = twinCollection["CompanyName"] = row.CompanyName,
-                    ["BuildingName"] = twinCollection["BuildingName"] = row.BuildingName,
-                    ["ElevatorType"] = twinCollection["ElevatorType"] = row.ElevatorType,
-                },
-            }).Single();
-
-            var query =
-                (await conn.QueryAsync(
-                    "SELECT * from (select Elevator.Id, [key], [value],(select 'device') as 'type' from ElevatorMetaInformation, Elevator WHERE ElevatorMetaInformation.ElevatorId = Elevator.Id UNION SELECT elevator.id, [key], [value], (select 'type') AS 'type' FROM ElevatorTypeMetaInformation, Elevator WHERE ElevatorTypeMetaInformation.ElevatorTypeId = elevator.ElevatorTypeId) AS Result WHERE Result.Id = @elevator_id;",
-                    new {elevator_id = _deviceId})
-                ).ToList();
-
-            Dictionary<string, dynamic> remoteMetaDictionary = new();
-            if (query.Any())
-            {
-                foreach (var row in query)
-                {
-                    if (!remoteMetaDictionary.ContainsKey(row.type))
-                    {
-                        remoteMetaDictionary[row.type] = new Dictionary<string, dynamic>();
-                    }
-
-                    remoteMetaDictionary[row.type][row.key] = row.value;
-                }
+                _deviceInfo = deviceResult.data;
             }
+            else Console.Write(deviceResult.message);
 
-            ;
+            var metaQuery = await _databaseService.LoadMetadataForElevatorByIdAsync(_deviceId);
+            
+            if (metaQuery.status)
+                _deviceInfo!.Meta = metaQuery.data!;
+            
+            var keys= 
+                ((Dictionary<string, dynamic>)_deviceInfo!.Meta["device"]!)
+                .Select(row => row.Key).ToList();
 
-            _deviceInfo.Meta = remoteMetaDictionary;
-            _deviceInfo.Meta["device"]["DoorsAreOpen"] = false;
-
-            var twin = await DeviceClient.GetTwinAsync();
+            // Get List Of Keys in metadata-list
+            _changeService = new ChangeService(keys);
             _logService = new LogService(_deviceId, _databaseService);
-            //await UpdateReportedProperties();
-            await UpdateTwin();
-            Console.WriteLine(
-                $"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
-            Connected = true;
+
+            var twin = await _deviceClient.GetTwinAsync();
+            Console.WriteLine($"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
+            await _deviceClient.SetMethodHandlerAsync("ToggleFunctionality", ToggleFunctionality, _deviceClient);
+            await _deviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, _deviceClient);
+            await _deviceClient.SetMethodHandlerAsync("MoveToFloor", MoveToFloor, _deviceClient);
+            _connected = true;
         }
         catch (Exception e)
         {
             Console.WriteLine(e.Message);
-            Connected = false;
+            _connected = false;
         }
     }
 
-    public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
+    public async Task ChangeMetaValue(string key, string value)
     {
-        Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
-        //deviceInfo.Meta["DoorsAreOpen"]
+        if (_deviceInfo.Meta["device"].ContainsKey(key))
+        {
+            _deviceInfo.Meta["device"][key] = value;
+        }
+        else
+        {
+            _deviceInfo.Meta["device"][key] = null;
+        }
+    }
+    public async Task<MethodResponse> ToggleFunctionality(MethodRequest methodrequest, object usercontext)
+    {
+        Console.WriteLine($"Toggling functionality for elevator {_deviceInfo.DeviceId}");
+        var oldValue = _deviceInfo.IsFunctioning;
+        var newValue = !oldValue;
+        _deviceInfo.IsFunctioning = newValue;
+
+        var description = newValue ? "Elevator is currently online." : "Elevator is currently offline.";
+        var eventType = newValue ? "Elevator_Online" : "Elevator_Offline";
+
+        await _logService.AddAsync(description, eventType, oldValue ? "Online" : "Offline", newValue ? "Online" : "Offline");
+
+        var (status, message) = await _databaseService.SetFunctionalityInDbById(_deviceInfo.DeviceId, newValue.ToString());
+            if (!status) return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
+
+        await _deviceClient.UpdateReportedPropertiesAsync(new TwinCollection() { ["IsFunctioning"] = _deviceInfo.IsFunctioning });
+        await _changeService.SetChanged("IsFunctioning");
+        Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
+        return new MethodResponse(Array.Empty<byte>(), 200);
+    }
+    public async Task<bool> AreDoorsOpen() {
+        string key = "DoorsAreOpen";
+        if (_deviceInfo.Meta["device"].ContainsKey(key))
+        {
+            bool status = _deviceInfo.Meta["device"][key].Equals("1") ? true : false;
+            return status;
+        }
+        else await ChangeMetaValue(key, "false");
+        return false;
+    }
+    public async Task<(bool Status, string Message)> ToggleDoors()
+    {
+        if (!_deviceInfo.IsFunctioning)
+        {
+            String message = "Method cannot be accessed while the elevator is offline.";
+            Console.WriteLine(message);
+            return (false, message);
+        }
         var keyName = "DoorsAreOpen";
-        using IDbConnection conn = new SqlConnection(_connectionString);
-        var oldValue = false;
-        var newValue = false;
+        Console.WriteLine("Value: " + _deviceInfo.Meta["device"][keyName]);
         try
         {
-            Console.WriteLine(_deviceInfo.Meta["device"][keyName]);
-            oldValue = _deviceInfo.Meta["device"][keyName];
-            newValue = !oldValue;
-            _deviceInfo.Meta["device"][keyName] = newValue;
+            bool oldValue = _deviceInfo.Meta["device"][keyName].Equals("1");
+            bool newValue = !oldValue;
+            await ChangeMetaValue(keyName, (newValue ? "1" : "0"));
+            var description = newValue ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
+            var eventType = newValue ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
+            await _logService.AddAsync(description, eventType, oldValue ? "True" : "False", newValue ? "True" : "False");
+            Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
+            await _changeService.SetChanged(keyName);
+            return (true, "Action successful");
         }
         catch (Exception e)
         {
-            Console.WriteLine(e.Message);
+            return (false, e.Message);
         }
-
-        var description = newValue ? "Elevator Doors Are Open" : "Elevator Doors Are Closed";
-        var eventType = newValue ? "Doors_Open" : "Doors_Close"; // Doors_WalkedAway
-        await _logService.AddAsync(description, eventType, oldValue ? "True" : "False", newValue ? "True" : "False");
-        Console.WriteLine($"OpenCloseDoor Completed for: {_deviceInfo.Device["DeviceName"]}");
-        return new MethodResponse(new byte[0], 200);
+    }
+    public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
+    {
+        Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
+        var (status, message) = await ToggleDoors();
+        return status ?
+            new MethodResponse(Array.Empty<byte>(), 200) :
+            new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
     }
 
     public async Task Loop()
     {
         while (true)
         {
-            if (!Connected) continue;
+            if (!_connected){
+                var source = new CancellationTokenSource();
+                source.Cancel();
+            }
 
-            List<Task> tasks = new();
-            tasks.Add(UpdateTwin());
-            
-            if (_logService.GetList().Any())
-                tasks.Add(_logService.PushToDatabaseAsync());
+            if (await _changeService.HasAnyChangesBeenDone())
+            {
+                List<Task> tasks = new()
+                {
+                    UpdateTwin()
+                };
 
-            Task.WaitAll(tasks.ToArray());
+                if (_logService!.GetList().Any())
+                    tasks.Add(_logService.PushToDatabaseAsync());
 
-            Console.WriteLine(
-                $"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I've updated my twin!");
+                // Kollar vilka värden som är ändrade från tidigare. 
 
+                var changedValues = await _changeService.GetChanged();
+                
+                var valuesThatHaveChangedSinceLastRun = ((Dictionary<string, dynamic>) _deviceInfo!.Meta["device"]!)
+                    .ToList()
+                    .Where(item => changedValues.Contains(item.Key))
+                    .ToDictionary(item => item.Key, item => item.Value);
+
+                await _databaseService.UpdateElevator(_deviceInfo.DeviceId, valuesThatHaveChangedSinceLastRun);
+                Task.WaitAll(tasks.ToArray());
+                await _changeService.ClearChanges();
+            }
+            else Console.WriteLine($"Nothing has changed for {_deviceInfo.DeviceId}, moving on...");
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
 
     public async Task UpdateTwin()
     {
-        TwinCollection newTwin = new TwinCollection()
+        TwinCollection newTwin = new()
         {
+            ["IsFunctioning"] = _deviceInfo.IsFunctioning,
             ["DeviceName"] = _deviceInfo.Device["DeviceName"],
             ["CompanyName"] = _deviceInfo.Device["CompanyName"],
             ["BuildingName"] = _deviceInfo.Device["BuildingName"],
             ["ElevatorType"] = _deviceInfo.Device["ElevatorType"],
+            ["meta"] = JObject.FromObject(_deviceInfo.Meta["device"])
         };
-        newTwin["meta"] = JObject.FromObject(_deviceInfo.Meta["device"]);
-        await DeviceClient.UpdateReportedPropertiesAsync(newTwin);
+
+        Console.WriteLine($"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I've updated my twin!");
+        await _deviceClient.UpdateReportedPropertiesAsync(newTwin);
     }
+
+    public async Task<MethodResponse> MoveToFloor(MethodRequest methodRequest, object userContext)
+    {
+        var keyName = "CurrentFloor";
+        if (!_deviceInfo!.IsFunctioning)
+        {
+            String message = "Method cannot be accessed while the elevator is offline.";
+            Console.WriteLine(message);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
+        }
+
+        var request = JsonConvert.DeserializeObject<FloorChangeRequest>(methodRequest.DataAsJson);
+        int currentFloor = int.Parse(_deviceInfo.Meta["device"][keyName]);
+        int newFloor = request.FloorNumber.Value;
+
+        var errors = new List<string>();
+
+        if (await AreDoorsOpen())
+        {
+            var result = await ToggleDoors();
+            if (!result.Status)
+                errors.Add(result.Message);
+        }
+
+        if (!request.FloorNumber.HasValue)
+            errors.Add("You never picked a floor to move to.");
+        if (request.FloorNumber.HasValue && request.FloorNumber.Equals(currentFloor))
+            errors.Add("You can't go to the floor you're on. Please pick a different floor.");
+        if (!request.WeightAmount.HasValue)
+            errors.Add("Are you weightless? You need to have a weight to ride this elevator!");
+
+        if (errors.Any())
+        {
+            var json = "";
+            errors.ForEach(error => json += error);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(json)), 500);
+        }
+
+        try
+        {
+            ((Dictionary<string, dynamic>)_deviceInfo!.Meta["type"]!).TryGetValue("MaxWeight", out var typeMaxWeight);
+            ((Dictionary<string, dynamic>)_deviceInfo!.Meta["device"]!).TryGetValue("MaxWeight",
+                out var deviceMaxWeight);
+
+            if (deviceMaxWeight != null || typeMaxWeight != null)
+            {
+                int compareWeight = int.Parse(deviceMaxWeight ?? typeMaxWeight);
+                //Enhetens maxvikt har företräde före typens maxvikt. Om båda är satta så är det enhetens värde som gäller.
+                if (request.WeightAmount > compareWeight)
+                    return new MethodResponse(
+                        Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
+                            "You exceed the maximum weightlimit set for this elevator. You currently cannot ride this elevator. Please remove some weight.")),
+                        500);
+            }
+
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+
+        Console.WriteLine($"Changing floor for {_deviceInfo.Device["DeviceName"]}");
+        Console.WriteLine($"Current Floor: {currentFloor}");
+        Console.WriteLine($"Floor asked to move to : {newFloor}");
+        try
+        {
+            var description = $"Elevator moved from floor {currentFloor} to {newFloor}";
+            Console.WriteLine(
+                $"{_deviceInfo.DeviceId} started moving from floor {currentFloor.ToString()} to {newFloor.ToString()}");
+            await _logService!.AddAsync(description, "Elevator Started", currentFloor.ToString(), newFloor.ToString());
+            int relation = Math.Sign(currentFloor.CompareTo(newFloor));
+            switch (relation)
+            {
+                case -1:
+                    for (var i = currentFloor; i <= newFloor; i++)
+                    {
+                        await Task.Delay(1000);
+                        Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
+                    }
+
+                    break;
+                case 1:
+                    for (var i = currentFloor; i >= newFloor; i--)
+                    {
+                        await Task.Delay(1000);
+                        Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
+                    }
+
+                    break;
+            }
+
+            await _logService!.AddAsync(description, "Elevator Arrived", currentFloor.ToString(), newFloor.ToString());
+            Console.WriteLine($"{_deviceInfo.DeviceId} stopped at Floor {newFloor}");
+            await ToggleDoors();
+            await ChangeMetaValue(keyName, newFloor.ToString());
+            await _changeService!.SetChanged(keyName);
+            
+            return new MethodResponse(Array.Empty<byte>(), 200);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine();
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(e.Message)), 500);
+        }
+    }
+
 }

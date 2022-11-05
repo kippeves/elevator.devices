@@ -1,28 +1,27 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Net.Mail;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using Device.Classes;
-using Device.Classes.Base;
-using Device.Models;
-using Microsoft.Azure.Amqp.Serialization;
-using SmartApp.CLI.Device.Models;
+﻿using Device.Classes.Base;
+using Device.Services;
 
-namespace Device
+var sql =
+    "Server=tcp:kristiansql.database.windows.net,1433;Initial Catalog=azuresql;Persist Security Info=False;User ID=SqlAdmin;Password=9mFZPHjpgoH3KCKwHbmx;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;";
+
+var dbService = new DatabaseService(sql);
+var allElevators = new List<Elevator> {
+    new("601baa30-5077-4614-a211-603e09034947", dbService),
+    new("08105e08-0765-4ba0-ab14-98ae77f23f3f", dbService)
+};
+
+var setup = allElevators.Select(
+    device => device.SetupAsync()
+).ToArray();
+
+Task.WaitAll(setup);
+
+Console.WriteLine("Connecting elevators.");
+Console.WriteLine();
+
+allElevators.ForEach(async device => await device.Loop());
+
+while (true)
 {
-    public static class Program
-    {
-        public static Task Main(string[] args)
-        {
-            var allElevators = new List<Elevator>();
-                allElevators.Add(new LowHeightElevator(new DeviceInfo("601baa30-5077-4614-a211-603e09034947")));
-                allElevators.Add(new MidHeightElevator(new DeviceInfo("08105e08-0765-4ba0-ab14-98ae77f23f3f")));
-            var setup = allElevators.Select(device => device.SetupAsync()).ToArray();
-            Task.WaitAll(setup);
-            Console.WriteLine("Connecting elevators.");
-            Console.WriteLine("----------");
-            allElevators.ForEach(async device => await device.Loop());
-            while (true) ;
-        }
-    }
-}
+
+};

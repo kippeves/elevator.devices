@@ -18,12 +18,9 @@ namespace Device.Models
 
         public ElevatorLog(Guid elevatorId, string description, string eventType, string oldValue, string newValue)
         {
-            var date = DateTime.Now;
-            var zero = new DateTime(1970, 1, 1);
-            var span = date.Subtract(zero);
 
             ElevatorId = elevatorId;
-            TimeStamp = (long)span.TotalMilliseconds;
+            TimeStamp = (long)DateTime.Now.Subtract(new DateTime(1970, 1, 1)).TotalMilliseconds;
             Description = description;
             EventType = eventType;
             OldValue = oldValue;

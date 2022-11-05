@@ -1,6 +1,6 @@
 ﻿namespace Device.Models
 {
-    internal class DeviceInfo
+    public class DeviceInfo
     {
         public DeviceInfo()
         {
@@ -25,6 +25,6 @@
             ["Interval"] = (int)TimeSpan.FromMinutes(1).TotalMilliseconds
         };
 
-        public Dictionary<string, dynamic> Meta { get; set; }
+        public Dictionary<string, dynamic?> Meta { get; set; }
     }
 }
