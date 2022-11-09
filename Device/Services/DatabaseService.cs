@@ -92,13 +92,13 @@ public class DatabaseService : IDatabaseService
     {
         try {
             using IDbConnection conn = new SqlConnection(_connectionString);
-            var query = $"UPDATE Elevator SET IsFunctioning = '{value}' WHERE Id = '@ElevatorId'";
-            var changedRows = (await conn.QueryAsync(query, new { ElevatorId = id })).ToList();
+            var query = "UPDATE Elevator SET IsFunctioning = '" + (bool.Parse(value) ? '1' : '0') +
+                        "' WHERE Id = @ElevatorId;SELECT @@ROWCOUNT;";
+            var changedRows = await conn.QueryAsync(query, new { ElevatorId = id });
             return  (changedRows.Any(), changedRows.Any()?"Update successful":"Update not successful");
         }catch (Exception e) {
             return (false, e.Message);
         }
-
     }
 
     public async Task<bool> UpdateElevator(Guid id, Dictionary<string,dynamic> changedValues) {

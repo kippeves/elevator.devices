@@ -107,12 +107,12 @@ class Elevator
         await _logService.AddAsync(description, eventType, oldValue ? "Online" : "Offline", newValue ? "Online" : "Offline");
 
         var (status, message) = await _databaseService.SetFunctionalityInDbById(_deviceInfo.DeviceId, newValue.ToString());
-            if (!status) return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
+            if (!status) return new MethodResponse(Encoding.UTF8.GetBytes(message), 500);
 
         await _deviceClient.UpdateReportedPropertiesAsync(new TwinCollection() { ["IsFunctioning"] = _deviceInfo.IsFunctioning });
         await _changeService.SetChanged("IsFunctioning");
         Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
-        return new MethodResponse(Array.Empty<byte>(), 200);
+        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(description)), 200);
     }
     public async Task<bool> AreDoorsOpen() {
         string key = "DoorsAreOpen";
@@ -154,10 +154,10 @@ class Elevator
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
         Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
-        var (status, message) = await ToggleDoors();
-        return status ?
-            new MethodResponse(Array.Empty<byte>(), 200) :
-            new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
+        var toggleDoors = await ToggleDoors();
+        return toggleDoors.Status ?
+        new(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 200):
+        new (Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 500);
     }
 
     public async Task Loop()
@@ -192,7 +192,6 @@ class Elevator
                 Task.WaitAll(tasks.ToArray());
                 await _changeService.ClearChanges();
             }
-            else Console.WriteLine($"Nothing has changed for {_deviceInfo.DeviceId}, moving on...");
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
@@ -218,12 +217,20 @@ class Elevator
         var keyName = "CurrentFloor";
         if (!_deviceInfo!.IsFunctioning)
         {
-            String message = "Method cannot be accessed while the elevator is offline.";
-            Console.WriteLine(message);
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(message)), 500);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject("Method cannot be accessed while the elevator is offline.")), 500);
         }
 
-        var request = JsonConvert.DeserializeObject<FloorChangeRequest>(methodRequest.DataAsJson);
+        FloorChangeRequest request;
+        try
+        {
+
+            request = JsonConvert.DeserializeObject<FloorChangeRequest>(methodRequest.DataAsJson);
+        }
+        catch (Exception e)
+        {
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject("You did not provide any information with the call")), 500);
+        }
+        
         int currentFloor = int.Parse(_deviceInfo.Meta["device"][keyName]);
         int newFloor = request.FloorNumber.Value;
 
@@ -234,6 +241,7 @@ class Elevator
             var result = await ToggleDoors();
             if (!result.Status)
                 errors.Add(result.Message);
+            await Task.Delay(500);
         }
 
         if (!request.FloorNumber.HasValue)
@@ -242,13 +250,6 @@ class Elevator
             errors.Add("You can't go to the floor you're on. Please pick a different floor.");
         if (!request.WeightAmount.HasValue)
             errors.Add("Are you weightless? You need to have a weight to ride this elevator!");
-
-        if (errors.Any())
-        {
-            var json = "";
-            errors.ForEach(error => json += error);
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(json)), 500);
-        }
 
         try
         {
@@ -261,17 +262,18 @@ class Elevator
                 int compareWeight = int.Parse(deviceMaxWeight ?? typeMaxWeight);
                 //Enhetens maxvikt har företräde före typens maxvikt. Om båda är satta så är det enhetens värde som gäller.
                 if (request.WeightAmount > compareWeight)
-                    return new MethodResponse(
-                        Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(
-                            "You exceed the maximum weightlimit set for this elevator. You currently cannot ride this elevator. Please remove some weight.")),
-                        500);
+                    errors.Add("You exceed the maximum weightlimit set for this elevator. You currently cannot ride this elevator. Please remove some weight.");
             }
-
+            if (errors.Any())
+            {
+                var returnString = "";
+                errors.ForEach(error => returnString += error);
+                return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(returnString)), 500);
+            }
         }
         catch (Exception e)
         {
             Console.WriteLine(e);
-            throw;
         }
 
         Console.WriteLine($"Changing floor for {_deviceInfo.Device["DeviceName"]}");
@@ -282,7 +284,10 @@ class Elevator
             var description = $"Elevator moved from floor {currentFloor} to {newFloor}";
             Console.WriteLine(
                 $"{_deviceInfo.DeviceId} started moving from floor {currentFloor.ToString()} to {newFloor.ToString()}");
-            await _logService!.AddAsync(description, "Elevator Started", currentFloor.ToString(), newFloor.ToString());
+            
+            await _logService!.AddAsync(description, "Elevator Started", currentFloor.ToString(),
+                    newFloor.ToString());
+
             int relation = Math.Sign(currentFloor.CompareTo(newFloor));
             switch (relation)
             {
@@ -304,17 +309,18 @@ class Elevator
                     break;
             }
 
-            await _logService!.AddAsync(description, "Elevator Arrived", currentFloor.ToString(), newFloor.ToString());
+            await Task.Delay(500).ContinueWith(_ => _logService!.AddAsync(description, "Elevator Arrived",
+                currentFloor.ToString(),
+                newFloor.ToString()));
+
             Console.WriteLine($"{_deviceInfo.DeviceId} stopped at Floor {newFloor}");
-            await ToggleDoors();
+            await Task.Delay(500).ContinueWith(task => ToggleDoors());
             await ChangeMetaValue(keyName, newFloor.ToString());
             await _changeService!.SetChanged(keyName);
-            
-            return new MethodResponse(Array.Empty<byte>(), 200);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject($"{_deviceInfo.DeviceId} stopped at Floor {newFloor}")), 200);
         }
         catch (Exception e)
         {
-            Console.WriteLine();
             return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(e.Message)), 500);
         }
     }
