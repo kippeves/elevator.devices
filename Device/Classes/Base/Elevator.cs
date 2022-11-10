@@ -134,7 +134,7 @@ class Elevator
     }
 
 
-    public async Task<(bool Status, string Message)> ToggleDoors()
+    public async Task<(bool Status, string Message)?> ToggleDoors()
     {
         if (!_deviceInfo.IsFunctioning)
         {
@@ -154,20 +154,30 @@ class Elevator
             await _logService.AddAsync(description, eventType, oldValue ? "True" : "False", newValue ? "True" : "False");
             Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
             await _changeService.SetChanged(keyName);
-            return (true, "Action successful");
+            return (newValue, "Action successful");
         }
         catch (Exception e)
         {
-            return (false, e.Message);
+            return null;
         }
     }
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
         Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
         var toggleDoors = await ToggleDoors();
-        return toggleDoors.Status ?
-        new(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 200):
-        new (Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 500);
+        
+        var twin = new TwinCollection()
+        {
+            ["Value"] = toggleDoors.Value.Status,
+            ["Message"] = toggleDoors.Value.Message
+        };
+        //return toggleDoors.Value.Status ?
+        //new(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 200):
+        //new (Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 500);
+        return new(
+            Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)),
+            toggleDoors.HasValue ? 200 : 500
+            );
     }
 
     public async Task Loop()
@@ -249,8 +259,8 @@ class Elevator
         if (await AreDoorsOpen())
         {
             var result = await ToggleDoors();
-            if (!result.Status)
-                errors.Add(result.Message);
+            if (!result.Value.Status)
+                errors.Add(result.Value.Message);
             await Task.Delay(500);
         }
 
