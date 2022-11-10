@@ -74,6 +74,7 @@ class Elevator
             await _deviceClient.SetMethodHandlerAsync("ToggleFunctionality", ToggleFunctionality, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("MoveToFloor", MoveToFloor, _deviceClient);
+            await _deviceClient.SetMethodHandlerAsync("RemoveMetaData", RemoveMetaData, _deviceClient);
             _connected = true;
         }
         catch (Exception e)
@@ -83,6 +84,24 @@ class Elevator
         }
     }
 
+    public async Task<MethodResponse> RemoveMetaData(MethodRequest methodRequest, object userContext)
+    {
+        try{
+            Console.WriteLine($"Starting ResetElevator for: {_deviceInfo.Device["DeviceName"]}");
+            var message = "Metadata for Elevator was reset";
+            return new(
+                Encoding.UTF8.GetBytes(message),
+                200
+            );
+        }
+        catch(Exception e){
+            Console.WriteLine("Exception Happened: " + e.Message);
+            return new MethodResponse(
+                Encoding.UTF8.GetBytes(e.Message),
+                500
+            );
+        }
+    }
     public async Task ChangeMetaValue(string key, string value)
     {
         if (_deviceInfo.Meta["device"].ContainsKey(key))
