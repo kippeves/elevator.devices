@@ -94,6 +94,7 @@ class Elevator
             _deviceInfo.Meta["device"][key] = null;
         }
     }
+
     public async Task<MethodResponse> ToggleFunctionality(MethodRequest methodrequest, object usercontext)
     {
         Console.WriteLine($"Toggling functionality for elevator {_deviceInfo.DeviceId}");
@@ -112,8 +113,15 @@ class Elevator
         await _deviceClient.UpdateReportedPropertiesAsync(new TwinCollection() { ["IsFunctioning"] = _deviceInfo.IsFunctioning });
         await _changeService.SetChanged("IsFunctioning");
         Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
-        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(description)), 200);
+        var twin = new TwinCollection()
+        {
+            ["Value"] = newValue,
+            ["Message"] = description
+    };
+        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 200);
     }
+
+
     public async Task<bool> AreDoorsOpen() {
         string key = "DoorsAreOpen";
         if (_deviceInfo.Meta["device"].ContainsKey(key))
@@ -124,6 +132,8 @@ class Elevator
         else await ChangeMetaValue(key, "false");
         return false;
     }
+
+
     public async Task<(bool Status, string Message)> ToggleDoors()
     {
         if (!_deviceInfo.IsFunctioning)
