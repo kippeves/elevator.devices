@@ -5,6 +5,7 @@ using Microsoft.Azure.Devices.Client;
 using Microsoft.Azure.Devices.Shared;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using SmartApp.CLI.Device.Models;
 using System.Data;
 using System.Text;
 
@@ -86,21 +87,51 @@ class Elevator
 
     public async Task<MethodResponse> RemoveMetaData(MethodRequest methodRequest, object userContext)
     {
-        try{
-            Console.WriteLine($"Starting ResetElevator for: {_deviceInfo.Device["DeviceName"]}");
-            var message = "Metadata for Elevator was reset";
-            return new(
-                Encoding.UTF8.GetBytes(message),
-                200
+        var standardResponse = (int htmlCode, bool success, string? value, string? message) =>
+        {
+            var twin = new TwinCollection()
+            {
+                ["Success"] = success,
+                ["Value"] = value,
+                ["Message"] = message
+            };
+            Console.WriteLine(twin["Message"]);
+            return new MethodResponse(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)),
+                htmlCode
             );
+        };
+
+        RemoveMetaDataRequest request = null!;
+        try{
+            request = JsonConvert.DeserializeObject<RemoveMetaDataRequest>(methodRequest.DataAsJson)!;
         }
         catch(Exception e){
-            Console.WriteLine("Exception Happened: " + e.Message);
-            return new MethodResponse(
-                Encoding.UTF8.GetBytes(e.Message),
-                500
-            );
+            return standardResponse(400, false, "Reset Failed", "Exception Happened: " + e.Message);
         }
+
+        //1. Databasanrop
+        try{
+            if(!await _databaseService.RemoveListOfMetaData(_deviceId, request.Keys))
+            {
+                return standardResponse(500, false, "Reset Failed", "Exception Happened: Database was not changed");
+            }
+        } catch(Exception e) {
+            return standardResponse(500, false, "Reset Failed", "Exception Happened: " + e.Message);
+        }
+        //2. Twinuppdatering
+        //3. self check
+        try{
+            foreach(var key in request.Keys)
+            {
+                await ChangeMetaValue(key, null!);
+            }
+            await UpdateTwin();
+        } catch(Exception e) {
+            return standardResponse(500, false, "Reset Failed", "Exception Happened: " + e.Message);
+        }
+        
+        return standardResponse(200, true, "Reset Succeded", "Metadata is successfully reset");
     }
     public async Task ChangeMetaValue(string key, string value)
     {
@@ -136,10 +167,9 @@ class Elevator
         {
             ["Value"] = newValue,
             ["Message"] = description
-    };
+        };
         return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 200);
     }
-
 
     public async Task<bool> AreDoorsOpen() {
         string key = "DoorsAreOpen";
@@ -151,7 +181,6 @@ class Elevator
         else await ChangeMetaValue(key, "false");
         return false;
     }
-
 
     public async Task<(bool Status, string Message)?> ToggleDoors()
     {
@@ -190,9 +219,6 @@ class Elevator
             ["Value"] = toggleDoors.Value.Status,
             ["Message"] = toggleDoors.Value.Message
         };
-        //return toggleDoors.Value.Status ?
-        //new(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 200):
-        //new (Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 500);
         return new(
             Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)),
             toggleDoors.HasValue ? 200 : 500

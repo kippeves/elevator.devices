@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
@@ -139,6 +139,7 @@ public class DatabaseService : IDatabaseService
             updateQuery += $"('{listItem.ElevatorId}',{listItem.TimeStamp},'{listItem.Description}','{listItem.EventType}','{listItem.NewValue}','{listItem.OldValue}')";
             if (!listItem.Equals(list.Last())) updateQuery += ",";
         }
+
         try{
             using IDbConnection conn = new SqlConnection(_connectionString);
             await conn.QueryAsync(updateQuery);
@@ -150,6 +151,28 @@ public class DatabaseService : IDatabaseService
         }
     }
 
+    public async Task<bool> RemoveListOfMetaData(Guid deviceId, List<string> keys)
+    {
+        var deleteQuery = $"DELETE FROM ElevatorMetaInfo WHERE [ElevatorId] IN ('{deviceId}') AND [key] IN (";
+
+        foreach(var key in keys)
+        {
+            deleteQuery += $"'{key}'";
+            if(!keys.Equals(keys.Last())) deleteQuery += ",";
+        }
+
+        deleteQuery += ");";
+
+        try{
+            using IDbConnection conn = new SqlConnection(_connectionString);
+            await conn.QueryAsync(deleteQuery);
+            return true;
+        }
+        catch(Exception e){
+            Console.WriteLine(e.Message);
+            return false;
+        }
+    }
     public async Task<(bool status,string data)> GetConnectionstringForIdAsync(Guid deviceId)
     {
         using IDbConnection conn = new SqlConnection(_connectionString);

@@ -12,5 +12,5 @@ public interface IDatabaseService
     public Task<(bool status, string message, DeviceInfo? data)> GetElevatorByIdAsync(Guid deviceId);
     public Task<(bool status, string message, Dictionary<string, dynamic?>? data)> LoadMetadataForElevatorByIdAsync(Guid deviceId);
     public Task<(bool status, string message)> SetFunctionalityInDbById(Guid id, string value);
-
+    public Task<bool> RemoveListOfMetaData(Guid deviceId, List<string> keys);
 }
