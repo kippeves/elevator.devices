@@ -106,17 +106,17 @@ public class DatabaseService : IDatabaseService
         {
             using IDbConnection conn = new SqlConnection(_connectionString);
             var query = "";
-            changedValues.ToList().ForEach(value =>
+            changedValues.ToList().ForEach(item =>
             {
-                if (value.Key.Equals("IsFunctioning")) return;
+                if (item.Key.Equals("IsFunctioning") || item.Value == null) return;
                 query +=
                     $"UPDATE ElevatorMetaInformation " +
-                    $"SET [value]='{value.Value}' " +
-                    $"WHERE [key]='{value.Key}' " +
+                    $"SET [value]='{item.Value}' " +
+                    $"WHERE [key]='{item.Key}' " +
                     $"AND ElevatorId = '{id.ToString()}' " +
                     "IF @@ROWCOUNT = 0 " +
                     "INSERT INTO ElevatorMetaInformation " +
-                    $"VALUES ('{id.ToString()}','{value.Key}','{value.Value}');";
+                    $"VALUES ('{id.ToString()}','{item.Key}','{item.Value}');";
             });
             if (!string.IsNullOrEmpty(query))
                 await conn.QueryAsync(query);

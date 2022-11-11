@@ -65,6 +65,8 @@ class Elevator
             var keys= 
                 ((Dictionary<string, dynamic>)_deviceInfo!.Meta["device"]!)
                 .Select(row => row.Key).ToList();
+            
+            keys.ForEach(Console.WriteLine);
 
             // Get List Of Keys in metadata-list
             _changeService = new ChangeService(keys);
@@ -110,6 +112,21 @@ class Elevator
             return standardResponse(400, false, "Reset Failed", "Exception Happened: " + e.Message);
         }
 
+        var oldValues = new TwinCollection();
+        
+        try
+        {
+            foreach(var key in request.Keys)
+            {
+                oldValues[key] = _deviceInfo!.Meta["device"]![key];
+            }
+        }
+        catch(Exception e){
+            Console.WriteLine(e.Message);
+            return standardResponse(500, false, "Reset Failed", "Exception Happened: Database was not changed");
+        }
+        
+
         //1. Databasanrop
         try{
             if(!await _databaseService.RemoveListOfMetaData(_deviceId, request.Keys))
@@ -130,7 +147,18 @@ class Elevator
         } catch(Exception e) {
             return standardResponse(500, false, "Reset Failed", "Exception Happened: " + e.Message);
         }
-        
+
+        var description = "Removed Metadata: ";
+        request.Keys.ForEach(key => description += key + " ");
+        var OldValuesString = "";
+        request.Keys.ForEach( key => OldValuesString += $"{key}: {oldValues[key] }");
+
+        await _logService.AddAsync(description, "Metadata Removal", OldValuesString, "null");
+        foreach(var key in request.Keys)
+        {
+            await _changeService.SetChanged(key);
+        }
+
         return standardResponse(200, true, "Reset Succeded", "Metadata is successfully reset");
     }
     public async Task ChangeMetaValue(string key, string value)
