@@ -153,12 +153,12 @@ public class DatabaseService : IDatabaseService
 
     public async Task<bool> RemoveListOfMetaData(Guid deviceId, List<string> keys)
     {
-        var deleteQuery = $"DELETE FROM ElevatorMetaInfo WHERE [ElevatorId] IN ('{deviceId}') AND [key] IN (";
+        var deleteQuery = $"DELETE FROM ElevatorMetaInformation WHERE [ElevatorId] IN ('{deviceId}') AND [key] IN (";
 
         foreach(var key in keys)
         {
             deleteQuery += $"'{key}'";
-            if(!keys.Equals(keys.Last())) deleteQuery += ",";
+            if(!key.Equals(keys.Last())) deleteQuery += ",";
         }
 
         deleteQuery += ");";
