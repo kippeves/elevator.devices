@@ -112,13 +112,9 @@ class Elevator
 
         await _deviceClient.UpdateReportedPropertiesAsync(new TwinCollection() { ["IsFunctioning"] = _deviceInfo.IsFunctioning });
         await _changeService.SetChanged("IsFunctioning");
+        
         Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
-        var twin = new TwinCollection()
-        {
-            ["Value"] = newValue,
-            ["Message"] = description
-    };
-        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(twin)), 200);
+        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(newValue, description))), 200);
     }
 
 
@@ -135,6 +131,7 @@ class Elevator
 
 
     public async Task<(bool Status, string Message)> ToggleDoors()
+
     {
         if (!_deviceInfo.IsFunctioning)
         {
@@ -154,7 +151,7 @@ class Elevator
             await _logService.AddAsync(description, eventType, oldValue ? "True" : "False", newValue ? "True" : "False");
             Console.WriteLine($"{_deviceInfo.DeviceId}\t{description}");
             await _changeService.SetChanged(keyName);
-            return (true, "Action successful");
+            return (true, description);
         }
         catch (Exception e)
         {
@@ -165,9 +162,8 @@ class Elevator
     {
         Console.WriteLine($"Starting OpenCloseDoor for: {_deviceInfo.Device["DeviceName"]}");
         var toggleDoors = await ToggleDoors();
-        return toggleDoors.Status ?
-        new(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 200):
-        new (Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(toggleDoors.Message)), 500);
+        var response = await CreateResponse(toggleDoors.Status, toggleDoors.Message);
+        return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(response)), toggleDoors.Status?200:500); 
     }
 
     public async Task Loop()
@@ -222,12 +218,12 @@ class Elevator
         await _deviceClient.UpdateReportedPropertiesAsync(newTwin);
     }
 
-    public async Task<MethodResponse> MoveToFloor(MethodRequest methodRequest, object userContext)
-    {
+    public async Task<MethodResponse> MoveToFloor(MethodRequest methodRequest, object userContext) {
         var keyName = "CurrentFloor";
         if (!_deviceInfo!.IsFunctioning)
         {
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject("Method cannot be accessed while the elevator is offline.")), 500);
+
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false, "Method cannot be accessed while the elevator is offline."))), 500);
         }
 
         FloorChangeRequest request;
@@ -238,7 +234,7 @@ class Elevator
         }
         catch (Exception e)
         {
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject("You did not provide any information with the call")), 500);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,"You did not provide any information with the call"))), 500);
         }
         
         int currentFloor = int.Parse(_deviceInfo.Meta["device"][keyName]);
@@ -260,6 +256,8 @@ class Elevator
             errors.Add("You can't go to the floor you're on. Please pick a different floor.");
         if (!request.WeightAmount.HasValue)
             errors.Add("Are you weightless? You need to have a weight to ride this elevator!");
+        if(request.FloorNumber <= 0 || request.FloorNumber > _deviceInfo.Device["MaxFloor"] )
+            errors.Add("You cannot go to that floor.");
 
         try
         {
@@ -278,7 +276,7 @@ class Elevator
             {
                 var returnString = "";
                 errors.ForEach(error => returnString += error);
-                return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(returnString)), 500);
+                return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,returnString))), 500);
             }
         }
         catch (Exception e)
@@ -327,12 +325,23 @@ class Elevator
             await Task.Delay(500).ContinueWith(task => ToggleDoors());
             await ChangeMetaValue(keyName, newFloor.ToString());
             await _changeService!.SetChanged(keyName);
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject($"{_deviceInfo.DeviceId} stopped at Floor {newFloor}")), 200);
+            var x = $"{_deviceInfo.DeviceId} stopped at Floor {newFloor}";
+            var result = await CreateResponse(false, x);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(result)), 200);
         }
         catch (Exception e)
         {
-            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(e.Message)), 500);
+            var response = await CreateResponse(false, e.Message);
+            return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(response)), 500);
         }
     }
 
+    private async Task<TwinCollection> CreateResponse(bool status, string description) {
+        var twin = new TwinCollection()
+        {
+            ["Value"] = status,
+            ["Message"] = description
+        };
+        return twin;
+    }
 }

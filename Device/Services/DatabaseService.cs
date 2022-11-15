@@ -23,12 +23,11 @@ public class DatabaseService : IDatabaseService
 
     public async Task<(bool status, string message, DeviceInfo? data)> GetElevatorByIdAsync(Guid deviceId)
     {
-
         try
         {
             using IDbConnection conn = new SqlConnection(_connectionString);
-            var device = (await conn.QueryAsync("select * from ElevatorWithInfo where DeviceId = @ElevatorId",
-                new { ElevatorId = deviceId })).Select(row => new DeviceInfo()
+            var device = (await conn.QueryAsync("SELECT [DeviceId],[Building].[BuildingName],[BuildingId], [CompanyId], [ElevatorTypeId], [IsFunctioning], [Name], [CompanyName], [ElevatorType], [NumberOfFloors] from ElevatorWithInfo, Building where DeviceId = @ElevatorId AND Building.Id = ElevatorWithInfo.BuildingId;",
+                new { ElevatorId =  deviceId})).Select(row => new DeviceInfo()
             {
                 DeviceId = row.DeviceId,
                 BuildingId = row.BuildingId,
@@ -41,6 +40,7 @@ public class DatabaseService : IDatabaseService
                     ["CompanyName"] = row.CompanyName,
                     ["BuildingName"] = row.BuildingName,
                     ["ElevatorType"] = row.ElevatorType,
+                    ["MaxFloor"] = row.NumberOfFloors
                 },
             }).Single();
 
@@ -138,13 +138,11 @@ public class DatabaseService : IDatabaseService
         {
             updateQuery += $"('{listItem.ElevatorId}',{listItem.TimeStamp},'{listItem.Description}','{listItem.EventType}','{listItem.NewValue}','{listItem.OldValue}')";
             if (!listItem.Equals(list.Last())) updateQuery += ",";
-        }
-        try{
+        } try{
             using IDbConnection conn = new SqlConnection(_connectionString);
             await conn.QueryAsync(updateQuery);
             return true;
-        }
-        catch(Exception e){
+        } catch(Exception e){
             Console.WriteLine(e.Message);
             return false;
         }

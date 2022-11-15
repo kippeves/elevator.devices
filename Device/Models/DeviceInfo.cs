@@ -22,6 +22,7 @@
             ["CompanyName"] = null,
             ["BuildingName"] = null,
             ["ElevatorType"] = null,
+            ["MaxFloor"] = null,
             ["Interval"] = (int)TimeSpan.FromMinutes(1).TotalMilliseconds
         };
 
