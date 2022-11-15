@@ -66,8 +66,6 @@ class Elevator
                 ((Dictionary<string, dynamic>)_deviceInfo!.Meta["device"]!)
                 .Select(row => row.Key).ToList();
             
-            keys.ForEach(Console.WriteLine);
-
             // Get List Of Keys in metadata-list
             _changeService = new ChangeService(keys);
             _logService = new LogService(_deviceId, _databaseService);
@@ -232,7 +230,7 @@ class Elevator
         }
         catch (Exception e)
         {
-            return null;
+            return (false, e.Message);
         }
     }
     public async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
@@ -322,8 +320,8 @@ class Elevator
         if (await AreDoorsOpen())
         {
             var result = await ToggleDoors();
-            if (!result.Value.Status)
-                errors.Add(result.Value.Message);
+            if (!result.Status)
+                errors.Add(result.Message);
             await Task.Delay(500);
         }
 
