@@ -1,4 +1,4 @@
-using System.Data;
+﻿using System.Data;
 using System.Data.SqlClient;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
@@ -106,17 +106,17 @@ public class DatabaseService : IDatabaseService
         {
             using IDbConnection conn = new SqlConnection(_connectionString);
             var query = "";
-            changedValues.ToList().ForEach(value =>
+            changedValues.ToList().ForEach(item =>
             {
-                if (value.Key.Equals("IsFunctioning")) return;
+                if (item.Key.Equals("IsFunctioning") || item.Value == null) return;
                 query +=
                     $"UPDATE ElevatorMetaInformation " +
-                    $"SET [value]='{value.Value}' " +
-                    $"WHERE [key]='{value.Key}' " +
+                    $"SET [value]='{item.Value}' " +
+                    $"WHERE [key]='{item.Key}' " +
                     $"AND ElevatorId = '{id.ToString()}' " +
                     "IF @@ROWCOUNT = 0 " +
                     "INSERT INTO ElevatorMetaInformation " +
-                    $"VALUES ('{id.ToString()}','{value.Key}','{value.Value}');";
+                    $"VALUES ('{id.ToString()}','{item.Key}','{item.Value}');";
             });
             if (!string.IsNullOrEmpty(query))
                 await conn.QueryAsync(query);
@@ -148,6 +148,28 @@ public class DatabaseService : IDatabaseService
         }
     }
 
+    public async Task<bool> RemoveListOfMetaData(Guid deviceId, List<string> keys)
+    {
+        var deleteQuery = $"DELETE FROM ElevatorMetaInformation WHERE [ElevatorId] IN ('{deviceId}') AND [key] IN (";
+
+        foreach(var key in keys)
+        {
+            deleteQuery += $"'{key}'";
+            if(!key.Equals(keys.Last())) deleteQuery += ",";
+        }
+
+        deleteQuery += ");";
+
+        try{
+            using IDbConnection conn = new SqlConnection(_connectionString);
+            await conn.QueryAsync(deleteQuery);
+            return true;
+        }
+        catch(Exception e){
+            Console.WriteLine(e.Message);
+            return false;
+        }
+    }
     public async Task<(bool status,string data)> GetConnectionstringForIdAsync(Guid deviceId)
     {
         using IDbConnection conn = new SqlConnection(_connectionString);
