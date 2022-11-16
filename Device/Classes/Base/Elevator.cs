@@ -377,7 +377,6 @@ class Elevator
                 case -1:
                     for (var i = currentFloor; i <= newFloor; i++)
                     {
-                        await Task.Delay(1000);
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                     }
 
@@ -385,7 +384,6 @@ class Elevator
                 case 1:
                     for (var i = currentFloor; i >= newFloor; i--)
                     {
-                        await Task.Delay(1000);
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                     }
 
