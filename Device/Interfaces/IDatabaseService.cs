@@ -6,7 +6,7 @@ public interface IDatabaseService
 {
     Task<(bool status, string data)> GetConnectionstringForIdAsync(Guid id);
     public Task<(bool status, string data)> UpdateConnectionStringForElevatorByIdAsync(Guid deviceId);
-    Task<List<DeviceInfo>> GetAllElevators();
+    Task<List<Guid>> GetListOfElevatorIds();
     Task<bool> UpdateLogWithEvent(List<ElevatorLog> list);
     Task<bool> UpdateElevator(Guid id, Dictionary<string, dynamic> changedValues);
     public Task<(bool status, string message, DeviceInfo? data)> GetElevatorByIdAsync(Guid deviceId);

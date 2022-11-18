@@ -6,9 +6,9 @@
         {
         }
 
-        public DeviceInfo(string deviceId)
+        public DeviceInfo(Guid id)
         {
-            DeviceId = new Guid(deviceId);
+            DeviceId = id;
         }
 
         public Guid DeviceId { get; set; }

@@ -4,10 +4,10 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace SmartApp.CLI.Device.Models
+namespace Device.Models
 {
-    internal class RequestPayload
+    internal class UpdateMetaDataRequest
     {
-        public int Interval { get; set; } = 0;
+        public KeyValuePair<string,dynamic> Values { get; set; }
     }
 }

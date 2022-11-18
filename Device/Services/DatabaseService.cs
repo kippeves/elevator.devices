@@ -52,7 +52,7 @@ public class DatabaseService : IDatabaseService
         }
     }
 
-    public async Task<(bool status, string message, Dictionary<string, dynamic?>? data)> LoadMetadataForElevatorByIdAsync(Guid deviceId)
+    public async Task<(bool status, string message, Dictionary<string, dynamic> data)> LoadMetadataForElevatorByIdAsync(Guid deviceId)
     {
         try
         {
@@ -70,7 +70,7 @@ public class DatabaseService : IDatabaseService
                 ).ToList();
 
             Dictionary<string, dynamic?> remoteMetaDictionary = new();
-            if (query.Any())
+
             {
                 foreach (var row in query)
                 {
@@ -81,8 +81,9 @@ public class DatabaseService : IDatabaseService
 
                     remoteMetaDictionary[row.type][row.key] = row.value;
                 }
+
+                return (true, "Data loaded", remoteMetaDictionary);
             }
-            return (true, "Data loaded" , remoteMetaDictionary);
         } catch (Exception e) {
                 return (false, e.Message, null);
         }
@@ -127,9 +128,12 @@ public class DatabaseService : IDatabaseService
         }
     }
 
-    public Task<List<DeviceInfo>> GetAllElevators()
+    public async Task<List<Guid>> GetListOfElevatorIds()
     {
-        throw new NotImplementedException();
+        var query = "select Id from Elevator";
+        using IDbConnection conn = new SqlConnection(_connectionString);
+        var result = (await conn.QueryAsync(query)).Select(device => (Guid)device.Id).ToList();
+        return await Task.FromResult(result);
     }
 
     public async Task<bool> UpdateLogWithEvent(List<ElevatorLog> list) {
@@ -205,6 +209,4 @@ public class DatabaseService : IDatabaseService
             return (false,e.Message);
         }
     }
-
-
 }
