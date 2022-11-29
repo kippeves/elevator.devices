@@ -174,6 +174,51 @@ public class DatabaseService : IDatabaseService
             return false;
         }
     }
+
+    public async Task<Breakdown>GetCurrentBreakdownIfExists(Guid deviceId)
+    {
+        using IDbConnection conn = new SqlConnection(_connectionString);
+        try
+        {
+            const string breakdownQuery = "SELECT ElevatorId, Id, CreatedAt from Breakdown " +
+                                 "WHERE EXISTS " +
+                                 "(SELECT ElevatorId, Id FROM BreakdownTask" +
+                                 "WHERE BreakdownTask.BreakdownId = Breakdown.Id" +
+                                 "AND BreakdownTask.ElevatorId = ElevatorId" +
+                                 "AND RepairDate IS NULL" +
+                                 ") AND ElevatorId = @ElevatorId;";
+
+            var breakdownResult = await conn.QuerySingleOrDefaultAsync(breakdownQuery,
+                new {ElevatorId = deviceId});
+
+            if (breakdownResult is null)
+                return null;
+
+            const string taskQuery = 
+                                "SELECT Id, Reason, RepairDate FROM BreakdownTask" +
+                                 "WHERE BreakdownId = @breakdownId" +
+                                 "AND ElevatorId = @elevatorId" +
+                                 "AND RepairDate IS NULL;";
+
+            var taskResult = await conn.QueryAsync(taskQuery, new
+                {breakdownId = breakdownResult.Id, elevatorId = breakdownResult.ElevatorId});
+            
+            var taskList = 
+                taskResult
+                    .Select(
+                        row => new BreakdownTask(row.Id, row.Reason, row.RepairDate)
+                    ).ToList();
+
+            var b = new Breakdown(breakdownResult.Id, taskList, breakdownResult.CreatedAt);
+            return b;
+        }
+        catch (Exception e)
+        {
+            Chalk.Red(e.Message);
+            return null;
+        }
+    }
+
     public async Task<(bool status,string data)> GetConnectionstringForIdAsync(Guid deviceId)
     {
         using IDbConnection conn = new SqlConnection(_connectionString);
