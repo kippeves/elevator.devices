@@ -182,10 +182,10 @@ public class DatabaseService : IDatabaseService
         {
             const string breakdownQuery = "SELECT ElevatorId, Id, CreatedAt from Breakdown " +
                                  "WHERE EXISTS " +
-                                 "(SELECT ElevatorId, Id FROM BreakdownTask" +
-                                 "WHERE BreakdownTask.BreakdownId = Breakdown.Id" +
-                                 "AND BreakdownTask.ElevatorId = ElevatorId" +
-                                 "AND RepairDate IS NULL" +
+                                 "(SELECT ElevatorId, Id FROM BreakdownTask " +
+                                 "WHERE BreakdownTask.BreakdownId = Breakdown.Id " +
+                                 "AND BreakdownTask.ElevatorId = ElevatorId " +
+                                 "AND RepairDate IS NULL " +
                                  ") AND ElevatorId = @ElevatorId;";
 
             var breakdownResult = await conn.QuerySingleOrDefaultAsync(breakdownQuery,
@@ -195,9 +195,9 @@ public class DatabaseService : IDatabaseService
                 return null;
 
             const string taskQuery = 
-                                "SELECT Id, Reason, RepairDate FROM BreakdownTask" +
-                                 "WHERE BreakdownId = @breakdownId" +
-                                 "AND ElevatorId = @elevatorId" +
+                                "SELECT Id, Reason, RepairDate FROM BreakdownTask " +
+                                 "WHERE BreakdownId = @breakdownId " +
+                                 "AND ElevatorId = @elevatorId " +
                                  "AND RepairDate IS NULL;";
 
             var taskResult = await conn.QueryAsync(taskQuery, new
@@ -210,6 +210,14 @@ public class DatabaseService : IDatabaseService
                     ).ToList();
 
             var b = new Breakdown(breakdownResult.Id, taskList, breakdownResult.CreatedAt);
+            Chalk.Red($"Breakdown found, from {breakdownResult.CreatedAt}");
+            taskList.ForEach(task =>
+            {
+                var (status, message) = task.GetStatus();
+                if(status)
+                    Chalk.Green(message);
+                else Chalk.Red(message);
+            });
             return b;
         }
         catch (Exception e)

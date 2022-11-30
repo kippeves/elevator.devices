@@ -16,11 +16,18 @@ var allElevators = elevators.Select(
             dbService)
     ).ToList();
 
+int broken = 0, working = 0;
 var setup = allElevators.Select(
-    device => device.SetupAsync()
-).ToArray();
+    async device =>
+    {
+        await device.SetupAsync();
+        if (device.IsWorking())
+            working++;
+        else broken++;
+    }).ToArray();
 
 Task.WaitAll(setup);
-Console.WriteLine($"{allElevators.Count} elevators are online");
+Chalk.Gray($"{working} elevator"+(working==1?" is":"s are")+" online.");
+Chalk.Gray($"{broken} elevator"+(broken==1?" is":"s are")+" currently offline due to errors.");
 allElevators.ForEach(Loop);
 while (true);

@@ -52,7 +52,7 @@ namespace Device.Models
 
         public bool AreAllSubtasksFixed()
         {
-            return _subTasks.Any(s => !s.GetRepairStatus().Status);
+            return _subTasks.Any(s => !s.GetRepairDate().HasValue);
         }
 
         public bool RepairPart(BreakdownTask task)

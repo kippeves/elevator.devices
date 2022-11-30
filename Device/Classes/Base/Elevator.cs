@@ -66,10 +66,16 @@ internal class Elevator
             _changeService = new ChangeService(keys);
             _logService = new LogService(DeviceId, _databaseService);
             _repairService = new RepairService(_logService,_deviceInfo.DeviceId);
-            _repairService.PreloadFromDatabaseEntry()
+            
+
             var twin = await _deviceClient.GetTwinAsync();
             Chalk.Green(
                 $"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
+
+            var breakdown = await _databaseService.GetCurrentBreakdownIfExists(_deviceInfo.DeviceId);
+                _repairService.PreloadFromDatabaseEntry(breakdown);
+
+            
             await _deviceClient.SetMethodHandlerAsync("ToggleFunctionality", ToggleFunctionality, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("OpenCloseDoor", OpenCloseDoor, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("MoveToFloor", MoveToFloor, _deviceClient);
@@ -88,7 +94,6 @@ internal class Elevator
     {
         await Task.FromResult(_deviceInfo.Meta["device"][key] = value);
     }
-
 
     private static bool WillAnAccidentHappen()
     {
@@ -153,6 +158,7 @@ internal class Elevator
                 await UpdateTwin();
                 await PushChanges();
             }
+
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
@@ -234,7 +240,7 @@ internal class Elevator
         if (accident)
         {
             var responseMessage =
-                _repairService.CreateAccident(_deviceInfo.DeviceId, new List<string> {"Doors are stuck"});
+                _repairService.CreateAccident(new List<string> {"Doors are stuck"});
             await _changeService.SetChanged(keyName);
             await PushChanges();
             return new MethodResponse(
@@ -342,10 +348,13 @@ internal class Elevator
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                         if (!WillAnAccidentHappen()) continue;
                         accidents.Add("Elevator jammed at floor " + i);
-                        var responseMessage = _repairService.CreateAccident(_deviceInfo.DeviceId, accidents);
+                        var responseMessage = _repairService.CreateAccident(accidents);
+                        
                         await ChangeMetaValue(keyName, i.ToString());
                         await _changeService!.SetChanged(keyName);
+                        
                         _deviceInfo.IsFunctioning = false;
+
                         await PushChanges();
                         Chalk.Red(responseMessage);
                         return new MethodResponse(
@@ -360,11 +369,13 @@ internal class Elevator
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                         if (!WillAnAccidentHappen()) continue;
                         accidents.Add("Elevator jammed at floor " + i);
-                        var responseMessage = _repairService.CreateAccident(_deviceInfo.DeviceId, accidents);
+                        var responseMessage = _repairService.CreateAccident(accidents);
 
                         await ChangeMetaValue(keyName, i.ToString());
                         await _changeService!.SetChanged(keyName);
+                        
                         _deviceInfo.IsFunctioning = false;
+                        
                         await PushChanges();
                         Chalk.Red(responseMessage);
                         return new MethodResponse(
@@ -383,8 +394,7 @@ internal class Elevator
             await Task.Delay(500).ContinueWith(_ => ToggleDoors());
             await ChangeMetaValue(keyName, newFloor.ToString());
             await _changeService!.SetChanged(keyName);
-            var x = $"{_deviceInfo.DeviceId} stopped at Floor {newFloor}";
-            var result = await CreateResponse(false, x);
+            var result = await CreateResponse(false, $"{_deviceInfo.DeviceId} stopped at Floor {newFloor}");
             return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(result)), 200);
         }
         catch (Exception e)
@@ -541,5 +551,10 @@ internal class Elevator
         await _logService.AddAsync(description, "Metadata Update", description, "null");
         await _changeService.SetChanged(request.Values.Key);
         return standardResponse(200, true, "Update Succeeded", "Metadata is successfully updated");
+    }
+
+    public bool IsWorking()
+    {
+        return _repairService.IsBroken();
     }
 }

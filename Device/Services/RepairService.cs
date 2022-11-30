@@ -36,6 +36,11 @@ internal class RepairService : IRepairService
         return CurrentBreakdown != null;
     }
 
+    public Task<List<BreakdownTask>> GetTaskList()
+    {
+        return CurrentBreakdown?.GetTaskList();
+    }
+
     public bool FixPart(Guid partId)
     {
         var task = CurrentBreakdown?.GetReason(partId);

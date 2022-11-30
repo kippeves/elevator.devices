@@ -13,7 +13,8 @@ namespace Device.Interfaces
         public bool FixPart(Guid partId);
         public Breakdown GetBreakdown();
         public string CreateAccident(List<string> reasons);
-        public void PreloadFromDatabaseEntry();
+        public void PreloadFromDatabaseEntry(Breakdown b);
         public bool IsBroken();
+        public Task<List<BreakdownTask>> GetTaskList();
     }
 }

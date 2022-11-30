@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -36,15 +37,25 @@ namespace Device.Models
             return _repairDate.HasValue;
         }
 
-        public (bool Status, object Date)GetRepairStatus()
+        public DateTime? GetRepairDate()
         {
-            return (_repairDate.HasValue, _repairDate);
+            return _repairDate;
+        }
+
+        public (bool, string) GetStatus()
+        {
+            var status = GetRepairDate().HasValue;
+            return (status, ToString());
         }
 
         public override string ToString()
         {
-            var (status, date) = GetRepairStatus();
-            return $"Reason: {_reason}, Is fixed? {(status ? "At " + date : "No")}";
+            var date = GetRepairDate();
+            string dateString;
+            if (!date.HasValue)
+                dateString = "No";
+            else dateString = "At " + date;
+            return $"Reason: {_reason}, Is fixed? {dateString}";;
         }
     }
 }
