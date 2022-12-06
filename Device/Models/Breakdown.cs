@@ -10,24 +10,32 @@ namespace Device.Models
     public class Breakdown
     {
         private Guid _id;
+        private Guid _elevatorId;
         private readonly List<BreakdownTask> _subTasks = new();
         private DateTime _createdAt;
         private DateTime? _finalRepairdate;
 
-        public Breakdown(Guid id, List<BreakdownTask> subTasks, DateTime createdAt)
+        public Breakdown(Guid id, Guid elevatorId, List<BreakdownTask> subTasks, DateTime createdAt)
         {
             _id = id;
+            _elevatorId = elevatorId;
             _subTasks = subTasks;
             _createdAt = createdAt;
         }
 
-        public Breakdown(List<string> reasons)
+        public Breakdown(Guid elevatorId, List<string> reasons)
         {
+            _elevatorId = elevatorId;
             foreach(var reason in reasons)
             {
                 _subTasks!.Add(new BreakdownTask(reason));
             }
             _createdAt = DateTime.Now;
+        }
+
+        public Guid GetElevatorId()
+        {
+            return _elevatorId;
         }
 
         public BreakdownTask GetReason(Guid id)
@@ -52,7 +60,7 @@ namespace Device.Models
 
         public bool AreAllSubtasksFixed()
         {
-            return _subTasks.Any(s => !s.GetRepairDate().HasValue);
+            return _subTasks.Any(s => s.GetRepairDate().HasValue);
         }
 
         public bool RepairPart(BreakdownTask task)

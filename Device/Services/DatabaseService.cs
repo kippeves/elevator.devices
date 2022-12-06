@@ -1,13 +1,9 @@
 ﻿using System.Data;
 using System.Data.SqlClient;
 using System.Net.Http.Json;
-using System.Runtime.CompilerServices;
 using Dapper;
-using Device.Classes.Base;
 using Device.Interfaces;
 using Device.Models;
-using DotNetty.Codecs;
-using Microsoft.Azure.Devices.Shared;
 
 namespace Device.Services;
 
@@ -209,7 +205,7 @@ public class DatabaseService : IDatabaseService
                         row => new BreakdownTask(row.Id, row.Reason, row.RepairDate)
                     ).ToList();
 
-            var b = new Breakdown(breakdownResult.Id, taskList, breakdownResult.CreatedAt);
+            var b = new Breakdown(breakdownResult.Id, breakdownResult.ElevatorId, taskList, breakdownResult.CreatedAt);
             Chalk.Red($"Breakdown found, from {breakdownResult.CreatedAt}");
             taskList.ForEach(task =>
             {
@@ -224,6 +220,41 @@ public class DatabaseService : IDatabaseService
         {
             Chalk.Red(e.Message);
             return null;
+        }
+    }
+
+    public async Task<bool> RegisterBreakdown(Breakdown breakdown)
+    {
+        var localBreakdown = breakdown;
+        Console.WriteLine("id: "+localBreakdown.GetElevatorId());
+        using IDbConnection conn = new SqlConnection(_connectionString);
+        try
+        {
+            Console.WriteLine("id: "+localBreakdown.GetElevatorId());
+
+            var insertGuid = await conn.QueryFirstOrDefaultAsync<Guid>(
+                $"INSERT INTO Breakdown ([ElevatorId]) OUTPUT Inserted.Id VALUES (@ElevatorId);", 
+                new { ElevatorId = localBreakdown.GetElevatorId()});
+
+            var tasks = await localBreakdown.GetTaskList();
+            var taskQuery = "INSERT INTO BreakdownTask (ElevatorId, BreakdownId, Reason) VALUES ";
+
+            foreach (var task in tasks)
+            {
+                taskQuery += $"('{breakdown.GetElevatorId()}','{insertGuid}', '{task.GetReason()}')";
+                if (task != tasks.Last())
+                    taskQuery += ", ";
+            }
+
+            Console.WriteLine(taskQuery);
+
+            var result = await conn.ExecuteAsync(taskQuery);
+            return result == tasks.Count;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e.Message);
+            return false;
         }
     }
 

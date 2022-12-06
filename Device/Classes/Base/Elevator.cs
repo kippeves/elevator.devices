@@ -69,11 +69,14 @@ internal class Elevator
             
 
             var twin = await _deviceClient.GetTwinAsync();
-            Chalk.Green(
-                $"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]");
-
             var breakdown = await _databaseService.GetCurrentBreakdownIfExists(_deviceInfo.DeviceId);
                 _repairService.PreloadFromDatabaseEntry(breakdown);
+
+            var message =
+                $"Elevator loaded: [{twin.Properties.Reported["ElevatorType"]}]\tCompany: [{twin.Properties.Reported["CompanyName"]}]\tBuilding: [{twin.Properties.Reported["BuildingName"]}]";
+            if(IsWorking()) 
+                Chalk.Green(message);
+            else Chalk.Red(message);
 
             
             await _deviceClient.SetMethodHandlerAsync("ToggleFunctionality", ToggleFunctionality, _deviceClient);
@@ -81,6 +84,7 @@ internal class Elevator
             await _deviceClient.SetMethodHandlerAsync("MoveToFloor", MoveToFloor, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("RemoveMetaData", RemoveMetaData, _deviceClient);
             await _deviceClient.SetMethodHandlerAsync("UpdateMetaData", UpdateMetaData, _deviceClient);
+            await _deviceClient.SetMethodHandlerAsync("RepairProblem", RepairProblem, _deviceClient);
             Connected = true;
         }
         catch (Exception e)
@@ -90,17 +94,45 @@ internal class Elevator
         }
     }
 
+    private async Task<MethodResponse> RepairProblem(MethodRequest methodrequest, object usercontext){
+        RepairRequest request;
+        try
+        {
+            request = JsonConvert.DeserializeObject<RepairRequest>(methodrequest.DataAsJson);
+            if (request == null)
+                throw new Exception();
+        } catch {
+            return new MethodResponse(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,
+                    "You did not provide any information with the call"))), 500);
+        }
+
+        var tasks = await _repairService.GetTaskList();
+        if (tasks.All(t => t.GetId() != request.BreakdownTaskId))
+            return new MethodResponse(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,
+                    "The part was not found."))), 500);
+        if (!_repairService.FixPart(request.BreakdownTaskId))
+            return new MethodResponse(
+                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,
+                    "The part was not made."))), 200);
+
+        var returnMessage = _repairService.CheckIfAllTasksAreDone() ? "The elevator is fully repaired." : "The repair is done.";
+        return new MethodResponse(
+            Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false,
+                returnMessage))), 200);
+
+    }
+
     private async Task ChangeMetaValue(string key, string value)
     {
         await Task.FromResult(_deviceInfo.Meta["device"][key] = value);
     }
-
     private static bool WillAnAccidentHappen()
     {
         var r = new Random();
         return r.Next(100)>90;
     }
-
     public async Task<bool> AreDoorsOpen()
     {
         var key = "DoorsAreOpen";
@@ -115,12 +147,19 @@ internal class Elevator
         return false;
     }
 
+
     public async Task<(bool Status, string Message)> ToggleDoors()
     {
         if (!_deviceInfo.IsFunctioning) {
                 var message = "Method cannot be accessed while the elevator is offline.";
                 Console.WriteLine(message);
                 return (false, message);
+        }
+        if(!IsWorking())
+        {
+            const string message = "Elevator is currently broken.";
+            Chalk.Red(message);
+            return (false, message);
         }
 
         const string keyName = "DoorsAreOpen";
@@ -143,7 +182,6 @@ internal class Elevator
             return (false, e.Message);
         }
     }
-
     public async Task Loop()
     {
         while (true)
@@ -162,7 +200,6 @@ internal class Elevator
             await Task.Delay(_deviceInfo.Device["Interval"]);
         }
     }
-
     private async Task PushChanges()
     {
         if (_logService!.GetList().Any())
@@ -178,7 +215,6 @@ internal class Elevator
         await _databaseService.UpdateElevator(_deviceInfo.DeviceId, valuesThatHaveChangedSinceLastRun);
         await _changeService.ClearChanges();
     }
-
     public async Task UpdateTwin()
     {
         TwinCollection newTwin = new()
@@ -195,7 +231,6 @@ internal class Elevator
             $"ID:[{_deviceInfo.DeviceId}]\t{_deviceInfo.Device["DeviceName"].ToString()}: I've updated my twin!");
         await _deviceClient.UpdateReportedPropertiesAsync(newTwin);
     }
-
     private static async Task<TwinCollection> CreateResponse(bool status, string description)
     {
         var twin = new TwinCollection
@@ -205,9 +240,14 @@ internal class Elevator
         };
         return await Task.FromResult(twin);
     }
-
     private async Task<MethodResponse> ToggleFunctionality(MethodRequest methodrequest, object usercontext)
     {
+        if(!IsWorking())
+        {
+            const string errorMessage = "Elevator is currently broken.";
+            Chalk.Red(errorMessage);
+            return new MethodResponse(Encoding.UTF8.GetBytes(errorMessage), 500);
+        }
         Console.WriteLine($"Toggling functionality for elevator {_deviceInfo.DeviceId}");
         var oldValue = _deviceInfo.IsFunctioning;
         var newValue = !oldValue;
@@ -231,7 +271,6 @@ internal class Elevator
         return new MethodResponse(
             Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(newValue, description))), 200);
     }
-
     private async Task<MethodResponse> OpenCloseDoor(MethodRequest methodRequest, object userContext)
     {
         string keyName = "DoorsAreOpen";
@@ -239,12 +278,15 @@ internal class Elevator
         var accident = WillAnAccidentHappen();
         if (accident)
         {
-            var responseMessage =
-                _repairService.CreateAccident(new List<string> {"Doors are stuck"});
-            await _changeService.SetChanged(keyName);
+            var (errorMessage, breakdown) = _repairService.CreateAccident(new List<string> {"Doors are stuck"});
+            var registerResult = await _databaseService.RegisterBreakdown(breakdown);
+            await _changeService!.SetChanged(keyName);
+            _deviceInfo.IsFunctioning = false;
             await PushChanges();
+            Chalk.Red(errorMessage);
             return new MethodResponse(
-                Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(await CreateResponse(false, responseMessage))), 200);
+                Encoding.UTF8.GetBytes(
+                    JsonConvert.SerializeObject(await CreateResponse(false, errorMessage))), 200);
         }
 
         var toggleDoors = await ToggleDoors();
@@ -252,9 +294,15 @@ internal class Elevator
         return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(response)),
             toggleDoors.Status ? 200 : 500);
     }
-
     private async Task<MethodResponse> MoveToFloor(MethodRequest methodRequest, object userContext)
     {
+        if(!IsWorking())
+        {
+            const string errorMessage = "Elevator is currently broken.";
+            Chalk.Red(errorMessage);
+            return new MethodResponse(Encoding.UTF8.GetBytes(errorMessage), 500);
+        }
+
         List<string> accidents = new();
         var keyName = "CurrentFloor";
         if (!_deviceInfo!.IsFunctioning)
@@ -348,18 +396,20 @@ internal class Elevator
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                         if (!WillAnAccidentHappen()) continue;
                         accidents.Add("Elevator jammed at floor " + i);
-                        var responseMessage = _repairService.CreateAccident(accidents);
-                        
+                        var (errorMessage, breakdown) = _repairService.CreateAccident(accidents);
+
+                        var registerResult = await _databaseService.RegisterBreakdown(breakdown);
+
                         await ChangeMetaValue(keyName, i.ToString());
                         await _changeService!.SetChanged(keyName);
                         
                         _deviceInfo.IsFunctioning = false;
 
                         await PushChanges();
-                        Chalk.Red(responseMessage);
+                        Chalk.Red(errorMessage);
                         return new MethodResponse(
                             Encoding.UTF8.GetBytes(
-                                JsonConvert.SerializeObject(await CreateResponse(false, responseMessage))), 200);
+                                JsonConvert.SerializeObject(await CreateResponse(false, errorMessage))), 200);
                     }
 
                     break;
@@ -369,7 +419,8 @@ internal class Elevator
                         Console.WriteLine($"{_deviceInfo.DeviceId} is currently on floor {i}.");
                         if (!WillAnAccidentHappen()) continue;
                         accidents.Add("Elevator jammed at floor " + i);
-                        var responseMessage = _repairService.CreateAccident(accidents);
+                        var (errorMessage, breakdown) = _repairService.CreateAccident(accidents);
+                        var registerResult = await _databaseService.RegisterBreakdown(breakdown);
 
                         await ChangeMetaValue(keyName, i.ToString());
                         await _changeService!.SetChanged(keyName);
@@ -377,10 +428,10 @@ internal class Elevator
                         _deviceInfo.IsFunctioning = false;
                         
                         await PushChanges();
-                        Chalk.Red(responseMessage);
+                        Chalk.Red(errorMessage);
                         return new MethodResponse(
                             Encoding.UTF8.GetBytes(
-                                JsonConvert.SerializeObject(await CreateResponse(false, responseMessage))), 200);
+                                JsonConvert.SerializeObject(await CreateResponse(false, errorMessage))), 200);
                     }
 
                     break;
@@ -403,7 +454,6 @@ internal class Elevator
             return new MethodResponse(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(response)), 500);
         }
     }
-
     private async Task<MethodResponse> RemoveMetaData(MethodRequest methodRequest, object userContext)
     {
         var standardResponse = (int htmlCode, bool success, string? value, string? message) =>
@@ -477,7 +527,6 @@ internal class Elevator
 
         return standardResponse(200, true, "Reset Succeded", "Metadata is successfully reset");
     }
-
     private async Task<MethodResponse> UpdateMetaData(MethodRequest methodRequest, object usercontext)
     {
         var standardResponse = (int htmlCode, bool success, string? value, string? message) =>
@@ -552,9 +601,8 @@ internal class Elevator
         await _changeService.SetChanged(request.Values.Key);
         return standardResponse(200, true, "Update Succeeded", "Metadata is successfully updated");
     }
-
     public bool IsWorking()
     {
-        return _repairService.IsBroken();
+        return _repairService.IsWorking();
     }
 }

@@ -17,4 +17,5 @@ public interface IDatabaseService
     public Task<(bool status, string message)> SetFunctionalityInDbById(Guid id, string value);
     public Task<bool> RemoveListOfMetaData(Guid deviceId, List<string> keys);
     public Task<Breakdown> GetCurrentBreakdownIfExists(Guid deviceId);
+    public Task<bool> RegisterBreakdown(Breakdown breakdown);
 }

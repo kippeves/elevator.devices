@@ -37,6 +37,11 @@ namespace Device.Models
             return _repairDate.HasValue;
         }
 
+        public string GetReason()
+        {
+            return _reason;
+        }
+
         public DateTime? GetRepairDate()
         {
             return _repairDate;

@@ -16,29 +16,36 @@ internal class RepairService : IRepairService
         _deviceId = deviceId;
     }
 
-    public string CreateAccident(List<string> reasons)
+    public (string, Breakdown) CreateAccident(List<string> reasons)
     {
-        CurrentBreakdown = new Breakdown(reasons);
+        CurrentBreakdown = new Breakdown(_deviceId, reasons);
         var description = $"Elevator {_deviceId} has broken down at {DateTime.Now}. Reasons: ";
         reasons.ForEach(reason => { description += reason != reasons.Last() ? reason + ", " : reason + "."; });
         _logService.AddAsync(description, "Breakdown", "NotBroken",
             "Broken");
-        return description;
+        return (description, CurrentBreakdown);
     }
+
+
 
     public void PreloadFromDatabaseEntry(Breakdown breakdown)
     {
         CurrentBreakdown = breakdown;
     }
 
-    public bool IsBroken()
+    public bool IsWorking()
     {
-        return CurrentBreakdown != null;
+        return CurrentBreakdown == null;
     }
 
     public Task<List<BreakdownTask>> GetTaskList()
     {
         return CurrentBreakdown?.GetTaskList();
+    }
+
+    public bool CheckIfAllTasksAreDone()
+    {
+        return CurrentBreakdown.AreAllSubtasksFixed();
     }
 
     public bool FixPart(Guid partId)
@@ -56,8 +63,7 @@ internal class RepairService : IRepairService
         return CurrentBreakdown;
     }
 
-    public bool FinishRepair()
-    {
+    public bool FinishRepair() {
         if (CurrentBreakdown == null) return false;
         CurrentBreakdown.SetFixed();
         _logService.AddAsync($"Repair finished at {CurrentBreakdown.GetFinishDate()}", "FinishRepair", "NotFinished",
